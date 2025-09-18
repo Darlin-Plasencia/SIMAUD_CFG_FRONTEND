@@ -6,9 +6,10 @@ import { LoadingSpinner } from '../common/LoadingSpinner';
 
 interface LoginFormProps {
   onSwitchToRegister: () => void;
+  onBackToLanding?: () => void;
 }
 
-export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister }) => {
+export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister, onBackToLanding }) => {
   const { login, isLoading } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
@@ -200,6 +201,17 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister }) => {
             Regístrate aquí
           </button>
         </p>
+        {onBackToLanding && (
+          <p className="text-gray-500 text-sm mt-2">
+            <button
+              onClick={onBackToLanding}
+              className="text-gray-500 hover:text-gray-700 transition-colors duration-200 hover:underline"
+              disabled={isLoading}
+            >
+              ← Volver al inicio
+            </button>
+          </p>
+        )}
       </div>
     </div>
   );

@@ -8,9 +8,10 @@ import { supabase } from '../../lib/supabase';
 interface RegisterFormProps {
   onSwitchToLogin: () => void;
   onRegistrationSuccess: () => void;
+  onBackToLanding?: () => void;
 }
 
-export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin, onRegistrationSuccess }) => {
+export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin, onRegistrationSuccess, onBackToLanding }) => {
   const { register, isLoading } = useAuth();
   const [formData, setFormData] = useState({
     name: '',
@@ -398,6 +399,17 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin, onR
             Inicia sesión aquí
           </button>
         </p>
+        {onBackToLanding && (
+          <p className="text-gray-500 text-sm mt-2">
+            <button
+              onClick={onBackToLanding}
+              className="text-gray-500 hover:text-gray-700 transition-colors duration-200 hover:underline"
+              disabled={isLoading}
+            >
+              ← Volver al inicio
+            </button>
+          </p>
+        )}
       </div>
     </div>
   );

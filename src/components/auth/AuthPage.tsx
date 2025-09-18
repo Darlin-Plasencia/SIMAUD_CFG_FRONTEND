@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
+import { LandingPage } from '../landing/LandingPage';
 import { LoginForm } from './LoginForm';
 import { RegisterForm } from './RegisterForm';
 import { EmailConfirmationPending } from './EmailConfirmationPending';
 import { useAuth } from '../../contexts/AuthContext';
 
 export const AuthPage: React.FC = () => {
-  const [currentView, setCurrentView] = useState<'login' | 'register' | 'confirmation'>('login');
+  const [currentView, setCurrentView] = useState<'landing' | 'login' | 'register' | 'confirmation'>('landing');
   const { pendingEmailConfirmation } = useAuth();
 
   // Si hay confirmación pendiente, mostrar la pantalla de confirmación
@@ -33,6 +34,16 @@ export const AuthPage: React.FC = () => {
           </motion.div>
         </div>
       </div>
+    );
+  }
+
+  // Show landing page by default
+  if (currentView === 'landing') {
+    return (
+      <LandingPage 
+        onLogin={() => setCurrentView('login')}
+        onRegister={() => setCurrentView('register')}
+      />
     );
   }
 
@@ -81,10 +92,14 @@ export const AuthPage: React.FC = () => {
             transition={{ duration: 0.3 }}
           >
             {currentView === 'login' ? (
-              <LoginForm onSwitchToRegister={() => setCurrentView('register')} />
+              <LoginForm 
+                onSwitchToRegister={() => setCurrentView('register')}
+                onBackToLanding={() => setCurrentView('landing')}
+              />
             ) : (
               <RegisterForm 
                 onSwitchToLogin={() => setCurrentView('login')}
+                onBackToLanding={() => setCurrentView('landing')}
                 onRegistrationSuccess={() => {
                   console.log('🎉 Cambiando a vista de confirmación...');
                   setCurrentView('confirmation');

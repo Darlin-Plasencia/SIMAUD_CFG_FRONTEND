@@ -6,9 +6,10 @@ import { LoadingSpinner } from '../common/LoadingSpinner';
 
 interface EmailConfirmationPendingProps {
   onBack: () => void;
+  onBackToLanding?: () => void;
 }
 
-export const EmailConfirmationPending: React.FC<EmailConfirmationPendingProps> = ({ onBack }) => {
+export const EmailConfirmationPending: React.FC<EmailConfirmationPendingProps> = ({ onBack, onBackToLanding }) => {
   const { pendingEmail, resendConfirmation, clearPendingConfirmation } = useAuth();
   const [isResending, setIsResending] = useState(false);
   const [resendMessage, setResendMessage] = useState('');
@@ -130,6 +131,23 @@ export const EmailConfirmationPending: React.FC<EmailConfirmationPendingProps> =
               <span>Volver al Login</span>
             </div>
           </motion.button>
+          
+          {onBackToLanding && (
+            <motion.button
+              onClick={() => {
+                clearPendingConfirmation();
+                onBackToLanding();
+              }}
+              className="w-full bg-white border border-gray-300 text-gray-600 py-3 px-4 rounded-lg font-medium transition-colors duration-200 hover:bg-gray-50"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <div className="flex items-center justify-center space-x-2">
+                <ArrowLeft className="w-4 h-4" />
+                <span>Volver al Inicio</span>
+              </div>
+            </motion.button>
+          )}
         </div>
       </div>
     </motion.div>
