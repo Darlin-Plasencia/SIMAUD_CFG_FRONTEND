@@ -270,6 +270,8 @@ async function getGestorDashboardData(supabase: any, params: DashboardParams) {
       rejected_contracts: statusStats.rejected || 0,
       signed_contracts: statusStats.signed || 0,
       completed_contracts: statusStats.completed || 0,
+      expired_contracts: contracts.filter((c: any) => c.actual_status === 'expired').length,
+      expiring_soon_contracts: contracts.filter((c: any) => c.actual_status === 'expiring_soon').length,
       total_value: totalValue,
       approval_rate: calculateApprovalRate(contracts),
       avg_contract_value: totalValue / (contracts.length || 1)

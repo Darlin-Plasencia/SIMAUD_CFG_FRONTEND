@@ -14,7 +14,8 @@ import {
   Plus,
   Trash2,
   AlertTriangle,
-  Users
+  Users,
+  RefreshCw
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { LoadingSpinner } from '../common/LoadingSpinner';
@@ -26,6 +27,12 @@ import type {
   ContractFormData,
   ContractSignatory 
 } from '../../types/contracts';
+
+interface ContractClient {
+  name: string;
+  email: string;
+  phone: string;
+}
 
 interface ContractModalProps {
   isOpen: boolean;
@@ -55,18 +62,21 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   const [formData, setFormData] = useState<ContractFormData>({
     template_id: '',
     title: '',
-    client_name: '',
-    client_email: '',
-    client_phone: '',
+    client_name: '', // Keep for backward compatibility
+    client_email: '', // Keep for backward compatibility  
+    client_phone: '', // Keep for backward compatibility
     contract_value: null,
     start_date: null,
     end_date: null,
     notes: '',
     variables_data: {},
     signatories: [],
-    auto_renewal: false
+    auto_renewal: contract?.auto_renewal || false
   });
 
+  const [clients, setClients] = useState<ContractClient[]>([
+    { name: '', email: '', phone: '' }
+  ]);
   useEffect(() => {
     if (isOpen) {
       loadTemplates();
@@ -94,6 +104,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
           variables_data: {},
           signatories: []
         });
+        setClients([{ name: '', email: '', phone: '' }]);
       }
       
       if (contract && isEditMode) {
@@ -174,6 +185,15 @@ export const ContractModal: React.FC<ContractModalProps> = ({
         auto_renewal: contract.auto_renewal || false
       });
       
+      // Configurar clientes - si existe client_name, usarlo como primer cliente
+      if (contract.client_name || contract.client_email) {
+        setClients([{
+          name: contract.client_name || '',
+          email: contract.client_email || '',
+          phone: contract.client_phone || ''
+        }]);
+      }
+      
       console.log('✅ Form data set successfully');
       console.log('📊 Final form data:', {
         template_id: contract.template_id,
@@ -248,11 +268,18 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   const validateForm = () => {
     if (!formData.template_id) return 'Debe seleccionar una plantilla';
     if (!formData.title.trim()) return 'El título es requerido';
-    if (!formData.client_name.trim()) return 'El nombre del cliente es requerido';
-    if (!formData.client_email.trim()) return 'El email del cliente es requerido';
     
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(formData.client_email)) return 'Email del cliente inválido';
+    // Validar clientes
+    const validClients = clients.filter(c => c.name.trim() || c.email.trim());
+    if (validClients.length === 0) return 'Debe agregar al menos un cliente';
+    
+    for (const client of validClients) {
+      if (!client.name.trim()) return 'Todos los clientes deben tener nombre';
+      if (!client.email.trim()) return 'Todos los clientes deben tener email';
+      
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(client.email)) return 'Email de cliente inválido: ' + client.email;
+    }
     
     // Validar variables requeridas
     const missingVariables = templateVariables
@@ -309,6 +336,8 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   const handleCreateContract = async () => {
     if (!user) throw new Error('Usuario no autenticado');
 
+    // Usar el primer cliente para campos de compatibilidad
+    const primaryClient = clients.find(c => c.name.trim() && c.email.trim()) || clients[0];
     // Crear el contrato
     const { data: contractData, error: contractError } = await supabase
       .from('contracts')
@@ -317,9 +346,9 @@ export const ContractModal: React.FC<ContractModalProps> = ({
         title: formData.title,
         content: selectedTemplate?.content || '',
         variables_data: formData.variables_data,
-        client_name: formData.client_name,
-        client_email: formData.client_email,
-        client_phone: formData.client_phone,
+        client_name: primaryClient.name,
+        client_email: primaryClient.email,
+        client_phone: primaryClient.phone,
         contract_value: formData.contract_value,
         start_date: formData.start_date,
         end_date: formData.end_date,
@@ -402,14 +431,16 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     // Generar contenido procesado antes de actualizar
     generatePreview();
 
+    // Usar el primer cliente para campos de compatibilidad
+    const primaryClient = clients.find(c => c.name.trim() && c.email.trim()) || clients[0];
     const { error: contractError } = await supabase
       .from('contracts')
       .update({
         title: formData.title,
         variables_data: formData.variables_data,
-        client_name: formData.client_name,
-        client_email: formData.client_email,
-        client_phone: formData.client_phone,
+        client_name: primaryClient.name,
+        client_email: primaryClient.email,
+        client_phone: primaryClient.phone,
         contract_value: formData.contract_value,
         start_date: formData.start_date,
         end_date: formData.end_date,
@@ -540,6 +571,22 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     }));
   };
 
+  const addClient = () => {
+    setClients(prev => [...prev, { name: '', email: '', phone: '' }]);
+  };
+
+  const removeClient = (index: number) => {
+    if (clients.length > 1) {
+      setClients(prev => prev.filter((_, i) => i !== index));
+    }
+  };
+
+  const updateClient = (index: number, field: keyof ContractClient, value: string) => {
+    setClients(prev => prev.map((client, i) =>
+      i === index ? { ...client, [field]: value } : client
+    ));
+    if (error) setError('');
+  };
   if (!isOpen) return null;
 
   const modalTitle = isEditMode ? 'Editar Contrato' : 'Nuevo Contrato';
@@ -652,61 +699,73 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                 </div>
 
                 {/* Client Info */}
+                {/* Multiple Clients */}
                 <div className="border border-gray-200 rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-gray-900 mb-4">Información del Cliente</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Nombre Completo *
-                      </label>
-                      <div className="relative">
-                        <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                        <input
-                          type="text"
-                          value={formData.client_name}
-                          onChange={(e) => handleInputChange('client_name', e.target.value)}
-                          className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          placeholder="Juan Pérez"
-                          disabled={loading}
-                          required
-                        />
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-sm font-semibold text-gray-900">Información de Clientes</h4>
+                    <button
+                      type="button"
+                      onClick={addClient}
+                      className="flex items-center space-x-2 px-3 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors duration-200"
+                      disabled={loading}
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span className="text-sm">Agregar Cliente</span>
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    {clients.map((client, index) => (
+                      <div key={index} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                        <div className="flex items-center justify-between mb-3">
+                          <h5 className="text-sm font-medium text-gray-700">Cliente {index + 1}</h5>
+                          {clients.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removeClient(index)}
+                              className="text-red-500 hover:text-red-700"
+                              disabled={loading}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div>
+                            <input
+                              type="text"
+                              value={client.name}
+                              onChange={(e) => updateClient(index, 'name', e.target.value)}
+                              className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              placeholder="Nombre completo"
+                              required
+                              disabled={loading}
+                            />
+                          </div>
+                          <div>
+                            <input
+                              type="email"
+                              value={client.email}
+                              onChange={(e) => updateClient(index, 'email', e.target.value)}
+                              className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              placeholder="Email"
+                              required
+                              disabled={loading}
+                            />
+                          </div>
+                          <div>
+                            <input
+                              type="tel"
+                              value={client.phone}
+                              onChange={(e) => updateClient(index, 'phone', e.target.value)}
+                              className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              placeholder="Teléfono"
+                              disabled={loading}
+                            />
+                          </div>
+                        </div>
                       </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Email *
-                      </label>
-                      <div className="relative">
-                        <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                        <input
-                          type="email"
-                          value={formData.client_email}
-                          onChange={(e) => handleInputChange('client_email', e.target.value)}
-                          className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          placeholder="juan@email.com"
-                          disabled={loading}
-                          required
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Teléfono
-                      </label>
-                      <div className="relative">
-                        <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                        <input
-                          type="tel"
-                          value={formData.client_phone}
-                          onChange={(e) => handleInputChange('client_phone', e.target.value)}
-                          className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          placeholder="+1234567890"
-                          disabled={loading}
-                        />
-                      </div>
-                    </div>
+                    ))}
                   </div>
                 </div>
 
@@ -896,7 +955,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                 {/* Error Message */}
 
                 {/* Auto-renewal option */}
-                <div className="col-span-2">
+                <div>
                   <div className="flex items-center space-x-3 p-4 bg-purple-50 border border-purple-200 rounded-lg">
                     <input
                       type="checkbox"

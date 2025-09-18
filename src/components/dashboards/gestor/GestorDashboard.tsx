@@ -20,17 +20,20 @@ import {
   TrendingUp,
   RefreshCw,
   AlertTriangle,
-  Target
+  Target,
+  Users
 } from 'lucide-react';
+import { supabase } from '../../../lib/supabase';
 import { useAuth } from '../../../contexts/AuthContext';
 import { UserProfile } from '../../common/UserProfile';
 import { ContractManagement } from '../../contracts/ContractManagement';
 import { RenewalCenter } from '../../renewals/RenewalCenter';
+import { AnalyticsReports } from '../../reports/AnalyticsReports';
 import { NotificationCenter } from '../../notifications/NotificationCenter';
 import { ExpiryAlerts } from '../../notifications/ExpiryAlerts';
 import { LoadingSpinner } from '../../common/LoadingSpinner';
 
-type GestorView = 'dashboard' | 'contracts' | 'renewals' | 'profile';
+type GestorView = 'dashboard' | 'contracts' | 'renewals' | 'analytics' | 'profile';
 
 export const GestorDashboard: React.FC = () => {
   const { user, logout } = useAuth();
@@ -44,6 +47,7 @@ export const GestorDashboard: React.FC = () => {
     { id: 'dashboard', label: 'Dashboard', icon: Home },
     { id: 'contracts', label: 'Mis Contratos', icon: FileText },
     { id: 'renewals', label: 'Renovaciones', icon: RefreshCw },
+    { id: 'analytics', label: 'Mis Métricas', icon: BarChart3 },
     { id: 'profile', label: 'Mi Perfil', icon: UserCheck }
   ];
 
@@ -60,11 +64,23 @@ export const GestorDashboard: React.FC = () => {
     setError('');
     
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        console.warn('No authenticated session found, skipping dashboard data load');
+        setDashboardData(null);
+        setLoading(false);
+        return;
+      }
+
+      if (!import.meta.env.VITE_SUPABASE_URL) {
+        throw new Error('VITE_SUPABASE_URL no está configurado');
+      }
+
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dashboard-stats?role=gestor&userId=${user.id}`,
         {
           headers: {
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            'Authorization': `Bearer ${session.access_token}`,
             'Content-Type': 'application/json'
           }
         }
@@ -90,6 +106,8 @@ export const GestorDashboard: React.FC = () => {
         return <ContractManagement onCreateContract={handleCreateContract} />;
       case 'renewals':
         return <RenewalCenter />;
+      case 'analytics':
+        return <GestorAnalytics userId={user?.id} />;
       case 'profile':
         return <UserProfile />;
       case 'dashboard':
@@ -202,6 +220,7 @@ export const GestorDashboard: React.FC = () => {
                   {currentView === 'dashboard' && 'Panel de control del gestor de contratos'}
                   {currentView === 'contracts' && 'Gestiona tus contratos y documentos'}
                  {currentView === 'renewals' && 'Gestiona solicitudes de renovación'}
+                  {currentView === 'analytics' && 'Métricas y análisis de tus contratos'}
                   {currentView === 'profile' && 'Gestiona tu información personal'}
                 </p>
               </div>
@@ -230,7 +249,7 @@ export const GestorDashboard: React.FC = () => {
         {/* Page Content */}
         <main className="flex-1 overflow-auto bg-gray-50">
           <div className="p-6">
-            {/* Expiry Alerts for Dashboard */}
+            {/* Expiry Alerts only for Dashboard */}
             {currentView === 'dashboard' && (
               <div className="mb-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">⚠️ Mis Contratos Próximos a Vencer</h3>
@@ -329,10 +348,10 @@ const GestorDashboardHome: React.FC<{
       description: 'tasa aprobación'
     },
     {
-      title: 'Aprobados',
-      value: data.stats.approved_contracts.toString(),
+      title: 'Finalizados',
+      value: (data.stats.completed_contracts + data.stats.expired_contracts || 0).toString(),
       change: `$${(data.stats.total_value / 1000).toFixed(0)}K`,
-      icon: CheckCircle,
+      icon: Target,
       color: 'from-green-500 to-green-600',
       description: 'valor total'
     }
@@ -576,6 +595,249 @@ const GestorDashboardHome: React.FC<{
             </div>
             <p className="text-2xl font-bold text-purple-600">{data.stats.total_value.toLocaleString()}</p>
             <p className="text-sm text-gray-600">Valor Total Generado</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Gestor Analytics Component
+const GestorAnalytics: React.FC<{ userId: string | undefined }> = ({ userId }) => {
+  const [analyticsData, setAnalyticsData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [period, setPeriod] = useState<'month' | 'quarter' | 'year'>('month');
+
+  useEffect(() => {
+    if (userId) {
+      loadGestorAnalytics();
+    }
+  }, [userId, period]);
+
+  const loadGestorAnalytics = async () => {
+    if (!userId) return;
+    
+    setLoading(true);
+    setError('');
+    
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('No authenticated session');
+
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dashboard-stats?role=gestor&userId=${userId}&period=${period}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Error al cargar analytics');
+      }
+
+      const data = await response.json();
+      setAnalyticsData(data);
+    } catch (error: any) {
+      console.error('Error loading gestor analytics:', error);
+      setError(error.message || 'Error al cargar las métricas');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <LoadingSpinner size="large" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-12">
+        <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+        <h3 className="text-lg font-medium text-gray-900 mb-2">Error al cargar métricas</h3>
+        <p className="text-gray-500 mb-6">{error}</p>
+        <button
+          onClick={loadGestorAnalytics}
+          className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors duration-200"
+        >
+          Reintentar
+        </button>
+      </div>
+    );
+  }
+
+  if (!analyticsData) return null;
+
+  const performanceMetrics = [
+    {
+      title: 'Tasa de Aprobación',
+      value: `${analyticsData.stats.approval_rate.toFixed(1)}%`,
+      description: 'Contratos aprobados vs creados',
+      icon: Target,
+      color: 'from-green-500 to-green-600'
+    },
+    {
+      title: 'Valor Promedio',
+      value: `$${(analyticsData.stats.avg_contract_value / 1000).toFixed(0)}K`,
+      description: 'Valor promedio por contrato',
+      icon: DollarSign,
+      color: 'from-blue-500 to-blue-600'
+    },
+    {
+      title: 'Productividad',
+      value: analyticsData.stats.contracts_this_week.toString(),
+      description: 'Contratos creados esta semana',
+      icon: TrendingUp,
+      color: 'from-purple-500 to-purple-600'
+    },
+    {
+      title: 'Valor Total',
+      value: `$${(analyticsData.stats.total_value / 1000).toFixed(0)}K`,
+      description: 'Valor total de todos mis contratos',
+      icon: DollarSign,
+      color: 'from-orange-500 to-orange-600'
+    }
+  ];
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Mis Métricas de Rendimiento</h2>
+          <p className="text-gray-600 mt-1">Análisis detallado de tus contratos y productividad</p>
+        </div>
+        <select
+          value={period}
+          onChange={(e) => setPeriod(e.target.value as any)}
+          className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+        >
+          <option value="month">Último Mes</option>
+          <option value="quarter">Último Trimestre</option>
+          <option value="year">Último Año</option>
+        </select>
+      </div>
+
+      {/* Performance Metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {performanceMetrics.map((metric, index) => {
+          const Icon = metric.icon;
+          return (
+            <motion.div
+              key={index}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.1 }}
+              className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 hover:shadow-md transition-shadow duration-200"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className={`p-3 rounded-lg bg-gradient-to-r ${metric.color}`}>
+                  <Icon className="w-6 h-6 text-white" />
+                </div>
+              </div>
+              <div>
+                <h3 className="text-2xl font-bold text-gray-900 mb-1">{metric.value}</h3>
+                <p className="text-gray-600 text-sm">{metric.title}</p>
+                <p className="text-gray-500 text-xs mt-1">{metric.description}</p>
+              </div>
+            </motion.div>
+          );
+        })}
+      </div>
+
+      {/* Detailed Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Status Distribution */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Distribución por Estado</h3>
+          <div className="space-y-3">
+            {Object.entries(analyticsData.charts.status_distribution).map(([status, count]: [string, any]) => (
+              <div key={status} className="flex items-center justify-between">
+                <span className="text-sm text-gray-600 capitalize">{status.replace('_', ' ')}</span>
+                <div className="flex items-center space-x-2">
+                  <div className="w-20 bg-gray-200 rounded-full h-2">
+                    <div 
+                      className="bg-purple-600 h-2 rounded-full transition-all duration-300"
+                      style={{ 
+                        width: `${((count / analyticsData.stats.total_contracts) * 100)}%` 
+                      }}
+                    />
+                  </div>
+                  <span className="text-sm font-medium text-gray-900 w-8 text-right">{count}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Value Trend */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Tendencia de Valor</h3>
+          <div className="space-y-3">
+            {Object.entries(analyticsData.charts.value_trend).slice(-6).map(([month, value]: [string, any]) => (
+              <div key={month} className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">{month}</span>
+                <div className="flex items-center space-x-2">
+                  <div className="w-20 bg-gray-200 rounded-full h-2">
+                    <div 
+                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                      style={{ 
+                        width: `${(value / Math.max(...Object.values(analyticsData.charts.value_trend))) * 100}%` 
+                      }}
+                    />
+                  </div>
+                  <span className="text-xs font-medium text-gray-900">
+                    ${(value / 1000).toFixed(0)}K
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Contract Performance */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-6">Rendimiento Detallado</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="text-center">
+            <div className="flex items-center justify-center w-12 h-12 bg-blue-100 rounded-full mx-auto mb-3">
+              <FileText className="w-6 h-6 text-blue-600" />
+            </div>
+            <p className="text-2xl font-bold text-blue-600">{analyticsData.stats.total_contracts}</p>
+            <p className="text-sm text-gray-600">Total Contratos</p>
+            <p className="text-xs text-gray-500 mt-1">{analyticsData.stats.new_contracts_month} este mes</p>
+          </div>
+          <div className="text-center">
+            <div className="flex items-center justify-center w-12 h-12 bg-green-100 rounded-full mx-auto mb-3">
+              <CheckCircle className="w-6 h-6 text-green-600" />
+            </div>
+            <p className="text-2xl font-bold text-green-600">{analyticsData.stats.signed_contracts}</p>
+            <p className="text-sm text-gray-600">Contratos Firmados</p>
+            <p className="text-xs text-gray-500 mt-1">Completados exitosamente</p>
+          </div>
+          <div className="text-center">
+            <div className="flex items-center justify-center w-12 h-12 bg-orange-100 rounded-full mx-auto mb-3">
+              <Clock className="w-6 h-6 text-orange-600" />
+            </div>
+            <p className="text-2xl font-bold text-orange-600">{analyticsData.stats.pending_approval}</p>
+            <p className="text-sm text-gray-600">En Aprobación</p>
+            <p className="text-xs text-gray-500 mt-1">Pendientes de revisar</p>
+          </div>
+          <div className="text-center">
+            <div className="flex items-center justify-center w-12 h-12 bg-red-100 rounded-full mx-auto mb-3">
+              <AlertTriangle className="w-6 h-6 text-red-600" />
+            </div>
+            <p className="text-2xl font-bold text-red-600">{analyticsData.stats.expiring_soon_contracts}</p>
+            <p className="text-sm text-gray-600">Próximos a Vencer</p>
+            <p className="text-xs text-gray-500 mt-1">Requieren atención</p>
           </div>
         </div>
       </div>

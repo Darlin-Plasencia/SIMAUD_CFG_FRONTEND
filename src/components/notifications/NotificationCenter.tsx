@@ -65,56 +65,56 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onNaviga
     setError('');
 
     try {
-      // Check if Supabase URL is configured
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      if (!supabaseUrl) {
-        throw new Error('VITE_SUPABASE_URL no está configurado en las variables de entorno');
+      // Check if Supabase is properly configured
+      if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+        throw new Error('Configuración de Supabase no encontrada. Verifica las variables de entorno.');
       }
 
       const { data: { session } } = await supabase.auth.getSession();
       
       if (!session) {
-        console.warn('No active session found, skipping notifications load');
+        console.log('No active session found, skipping notifications load');
         setNotifications([]);
         setUnreadCount(0);
         setLoading(false);
         return;
       }
 
-      console.log('Loading notifications from:', `${supabaseUrl}/functions/v1/notification-system`);
+      console.log('Loading notifications...');
 
-      const response = await fetch(
-        `${supabaseUrl}/functions/v1/notification-system?action=list`,
-        {
-          headers: {
-            'Authorization': `Bearer ${session.access_token}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+      // Load notifications directly from Supabase instead of edge function
+      const { data: notifications, error: notificationsError } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: false })
+        .limit(50);
 
-      console.log('Notification API response status:', response.status);
+      if (notificationsError) throw notificationsError;
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('API Error response:', errorText);
-        throw new Error(`Error al cargar notificaciones: ${response.status} ${response.statusText}`);
-      }
+      // Get unread count
+      const { count: unreadCount, error: countError } = await supabase
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', session.user.id)
+        .is('read_at', null);
 
-      const data = await response.json();
-      console.log('Notification data received:', data);
+      if (countError) throw countError;
       
-      setNotifications(data.notifications || []);
-      setUnreadCount(data.unread_count || 0);
+      console.log('✅ Loaded notifications:', notifications?.length || 0);
+      setNotifications(notifications || []);
+      setUnreadCount(unreadCount || 0);
 
     } catch (error: any) {
       console.error('Error loading notifications:', error);
       
-      // Handle specific error types
-      if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
-        setError('No se pudo conectar al servidor de notificaciones. Verifica tu conexión.');
-      } else if (error.message.includes('VITE_SUPABASE_URL')) {
-        setError('Configuración de Supabase faltante. Contacta al administrador.');
+      // Provide more specific error messages based on error type
+      if (error.message === 'Failed to fetch') {
+        setError('No se puede conectar con el servidor. Verifica tu conexión a internet.');
+      } else if (error.message.includes('CORS')) {
+        setError('Error de configuración CORS. Contacta al administrador.');
+      } else if (error.message.includes('Supabase')) {
+        setError(error.message);
       } else {
         setError(error.message || 'Error al cargar notificaciones');
       }
@@ -129,25 +129,12 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onNaviga
 
   const markAsRead = async (notificationId: string) => {
     try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      if (!supabaseUrl) return;
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read_at: new Date().toISOString() })
+        .eq('id', notificationId);
 
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session) return;
-
-      const response = await fetch(
-        `${supabaseUrl}/functions/v1/notification-system?action=mark_read&notification_id=${notificationId}`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${session.access_token}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      if (response.ok) {
+      if (!error) {
         setNotifications(prev => 
           prev.map(n => 
             n.id === notificationId 
@@ -164,25 +151,16 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onNaviga
 
   const markAllAsRead = async () => {
     try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      if (!supabaseUrl) return;
-
       const { data: { session } } = await supabase.auth.getSession();
-      
       if (!session) return;
 
-      const response = await fetch(
-        `${supabaseUrl}/functions/v1/notification-system?action=mark_all_read`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${session.access_token}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read_at: new Date().toISOString() })
+        .eq('user_id', session.user.id)
+        .is('read_at', null);
 
-      if (response.ok) {
+      if (!error) {
         setNotifications(prev => 
           prev.map(n => ({ ...n, read_at: n.read_at || new Date().toISOString() }))
         );
@@ -195,25 +173,16 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onNaviga
 
   const deleteNotification = async (notificationId: string) => {
     try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      if (!supabaseUrl) return;
-
       const { data: { session } } = await supabase.auth.getSession();
-      
       if (!session) return;
 
-      const response = await fetch(
-        `${supabaseUrl}/functions/v1/notification-system?action=delete&notification_id=${notificationId}`,
-        {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${session.access_token}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+      const { error } = await supabase
+        .from('notifications')
+        .delete()
+        .eq('id', notificationId)
+        .eq('user_id', session.user.id);
 
-      if (response.ok) {
+      if (!error) {
         setNotifications(prev => prev.filter(n => n.id !== notificationId));
         if (!notifications.find(n => n.id === notificationId)?.read_at) {
           setUnreadCount(prev => Math.max(0, prev - 1));

@@ -75,31 +75,47 @@ async function updateContractStatuses(supabase: any) {
   try {
     console.log('🔄 Updating contract statuses based on dates...');
 
-    // Call the database function
-    const { error } = await supabase.rpc('update_contract_status_by_date');
+    // Call the database function to update statuses
+    const { data: updateResults, error } = await supabase.rpc('update_contract_status_by_date');
     
     if (error) throw error;
 
-    // Get updated counts
-    const { data: statusCounts, error: countError } = await supabase
+    console.log('📊 Status update results:', updateResults);
+
+    // Get current status distribution
+    const { data: allContracts, error: countError } = await supabase
       .from('contracts')
-      .select('actual_status')
-      .not('actual_status', 'is', null);
+      .select('actual_status, approval_status, end_date')
+      .eq('approval_status', 'signed');
 
     if (countError) throw countError;
 
-    const counts = statusCounts.reduce((acc: any, contract: any) => {
+    // Count by actual_status
+    const actualStatusCounts = allContracts.reduce((acc: any, contract: any) => {
       acc[contract.actual_status] = (acc[contract.actual_status] || 0) + 1;
       return acc;
     }, {});
 
+    // Count contracts updated in this run
+    const updatedCounts = updateResults?.reduce((acc: any, result: any) => {
+      if (result.old_status !== result.new_status) {
+        acc[result.new_status] = (acc[result.new_status] || 0) + 1;
+      }
+      return acc;
+    }, {}) || {};
+
     console.log('✅ Contract statuses updated successfully');
+    console.log('📊 Updated contracts by new status:', updatedCounts);
+    console.log('📊 Total contracts by actual status:', actualStatusCounts);
 
     return {
       success: true,
-      message: 'Contract statuses updated successfully',
-      updated_counts: counts,
-      updated_at: new Date().toISOString()
+      message: `Updated ${updateResults?.length || 0} contracts`,
+      updated_counts: updatedCounts,
+      total_by_status: actualStatusCounts,
+      contracts_processed: updateResults?.length || 0,
+      updated_at: new Date().toISOString(),
+      details: updateResults
     };
 
   } catch (error) {

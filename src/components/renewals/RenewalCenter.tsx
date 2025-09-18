@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { supabase } from '../../lib/supabase';
 import { 
   RefreshCw, 
   Calendar, 
@@ -19,6 +20,8 @@ import {
 import { LoadingSpinner } from '../common/LoadingSpinner';
 import { RenewalRequestModal } from './RenewalRequestModal';
 import { RenewalProcessModal } from './RenewalProcessModal';
+import { ContractViewModal } from '../contracts/ContractViewModal';
+import type { Contract } from '../../types/contracts';
 
 interface Renewal {
   id: string;
@@ -54,6 +57,8 @@ export const RenewalCenter: React.FC = () => {
   const [selectedRenewal, setSelectedRenewal] = useState<Renewal | null>(null);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [showProcessModal, setShowProcessModal] = useState(false);
+  const [contractToView, setContractToView] = useState<Contract | null>(null);
+  const [showContractModal, setShowContractModal] = useState(false);
 
   useEffect(() => {
     loadRenewals();
@@ -64,6 +69,17 @@ export const RenewalCenter: React.FC = () => {
     setError('');
 
     try {
+      // Get authenticated session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError) {
+        throw new Error('Error de sesión: ' + sessionError.message);
+      }
+      
+      if (!session) {
+        throw new Error('No hay sesión activa');
+      }
+
       const params = new URLSearchParams({ action: 'list' });
       if (statusFilter !== 'all') {
         params.append('status', statusFilter);
@@ -73,14 +89,15 @@ export const RenewalCenter: React.FC = () => {
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/renewal-manager?${params}`,
         {
           headers: {
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            'Authorization': `Bearer ${session.access_token}`,
             'Content-Type': 'application/json'
           }
         }
       );
 
       if (!response.ok) {
-        throw new Error('Error al cargar renovaciones');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Error al cargar renovaciones');
       }
 
       const data = await response.json();
@@ -90,6 +107,8 @@ export const RenewalCenter: React.FC = () => {
     } catch (error: any) {
       console.error('Error loading renewals:', error);
       setError(error.message || 'Error al cargar las renovaciones');
+      setRenewals([]);
+      setMetrics(null);
     } finally {
       setLoading(false);
     }
@@ -103,6 +122,51 @@ export const RenewalCenter: React.FC = () => {
   const handleProcessRenewal = (renewal: Renewal) => {
     setSelectedRenewal(renewal);
     setShowProcessModal(true);
+  };
+
+  const handleViewContract = async (contractId: string) => {
+    try {
+      const { data: contract, error } = await supabase
+        .from('contracts')
+        .select(`
+          id,
+          template_id,
+          title,
+          content,
+          variables_data,
+          client_name,
+          client_email,
+          client_phone,
+          status,
+          created_by,
+          created_at,
+          updated_at,
+          approval_status,
+          current_version,
+          approved_by,
+          approved_at,
+          rejection_reason,
+          contract_value,
+          start_date,
+          end_date,
+          generated_content,
+          notes,
+          auto_renewal,
+          parent_contract_id,
+          renewal_type,
+          actual_status
+        `)
+        .eq('id', contractId)
+        .single();
+
+      if (error) throw error;
+      
+      setContractToView(contract);
+      setShowContractModal(true);
+    } catch (error) {
+      console.error('Error loading contract:', error);
+      setError('Error al cargar el contrato');
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -384,7 +448,7 @@ export const RenewalCenter: React.FC = () => {
                     
                     <div className="flex space-x-2">
                       <button
-                        onClick={() => {/* TODO: View original contract */}}
+                        onClick={() => handleViewContract(renewal.original_contract_id)}
                         className="flex items-center space-x-2 px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors duration-200"
                       >
                         <Eye className="w-4 h-4" />
@@ -403,7 +467,7 @@ export const RenewalCenter: React.FC = () => {
 
                       {renewal.new_contract_id && (
                         <button
-                          onClick={() => {/* TODO: View new contract */}}
+                          onClick={() => handleViewContract(renewal.new_contract_id)}
                           className="flex items-center space-x-2 px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
                         >
                           <FileText className="w-4 h-4" />
@@ -434,6 +498,14 @@ export const RenewalCenter: React.FC = () => {
           onClose={() => setShowProcessModal(false)}
           renewal={selectedRenewal}
           onSuccess={loadRenewals}
+        />
+      )}
+
+      {showContractModal && contractToView && (
+        <ContractViewModal
+          isOpen={showContractModal}
+          onClose={() => setShowContractModal(false)}
+          contract={contractToView}
         />
       )}
     </div>

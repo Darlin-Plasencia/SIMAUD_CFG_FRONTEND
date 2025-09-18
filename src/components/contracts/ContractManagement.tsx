@@ -15,7 +15,11 @@ import {
   Search,
   MoreHorizontal,
   Send,
-  Trash2
+  Trash2,
+  RefreshCw,
+  Archive,
+  ArchiveRestore,
+  AlertTriangle
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -39,6 +43,8 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ onCreate
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [signatureProgress, setSignatureProgress] = useState<Record<string, { total: number; completed: number }>>({});
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivingContract, setArchivingContract] = useState<string | null>(null);
 
   useEffect(() => {
     loadContracts();
@@ -76,17 +82,31 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ onCreate
           end_date,
           generated_content,
           notes,
+          auto_renewal,
+          parent_contract_id,
+          renewal_type,
+          actual_status,
+          archived,
+          archived_at,
+          archived_by,
           template:contract_templates(title),
           creator:user_profiles!created_by(name, email)
         `)
         .order('created_at', { ascending: false });
 
       // Apply role-based filtering
-      if (user.role === 'admin' || user.role === 'supervisor') {
-        // Admin/supervisor can see all contracts
-      } else {
-        // Users can only see their own contracts
+      if (user.role === 'gestor') {
+        // Gestores only see their own contracts
         query = query.eq('created_by', user.id);
+      } else if (user.role === 'user') {
+        // Users should not access this component normally, but if they do, show nothing
+        query = query.eq('created_by', 'none'); // This will return empty results
+      }
+      // Admin and supervisor see all contracts (no additional filter)
+      
+      // Filter archived contracts unless specifically showing archived
+      if (!showArchived) {
+        query = query.eq('archived', false);
       }
 
       const { data, error } = await query;
@@ -96,7 +116,7 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ onCreate
         throw error;
       }
 
-      console.log('Loaded contracts:', data);
+      console.log('Loaded contracts:', data?.length);
       setContracts(data || []);
 
       // Load signature progress for each contract
@@ -168,6 +188,65 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ onCreate
     } catch (error) {
       console.error('Error deleting contract:', error);
       alert('Error al eliminar el contrato');
+    }
+  };
+
+  const handleArchiveContract = async (contract: Contract) => {
+    const action = contract.archived ? 'desarchivar' : 'archivar';
+    if (!confirm(`¿Estás seguro de que quieres ${action} el contrato "${contract.title}"?`)) {
+      return;
+    }
+
+    setArchivingContract(contract.id);
+    try {
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      
+      const { error } = await supabase
+        .from('contracts')
+        .update({
+          archived: !contract.archived,
+          archived_by: !contract.archived ? currentUser?.id : null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', contract.id);
+
+      if (error) throw error;
+
+      await loadContracts();
+      console.log(`Contrato ${action}do exitosamente`);
+    } catch (error) {
+      console.error(`Error ${action}ndo contrato:`, error);
+      alert(`Error al ${action} el contrato`);
+    } finally {
+      setArchivingContract(null);
+    }
+  };
+
+  const handleUncancelContract = async (contract: Contract) => {
+    if (!confirm(`¿Estás seguro de que quieres descancelar el contrato "${contract.title}"? El contrato volverá a estar activo para firmas.`)) {
+      return;
+    }
+
+    try {
+      // Update contract status back to approved (ready for signatures)
+      const { error } = await supabase
+        .from('contracts')
+        .update({
+          approval_status: 'approved',
+          status: 'draft',
+          actual_status: 'active',
+          rejection_reason: null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', contract.id);
+
+      if (error) throw error;
+
+      await loadContracts();
+      console.log('Contrato descancelado exitosamente');
+    } catch (error) {
+      console.error('Error descancelando contrato:', error);
+      alert('Error al descancelar el contrato');
     }
   };
 
@@ -247,6 +326,33 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ onCreate
       case 'rejected': return XCircle;
       case 'signed': return Users;
       case 'completed': return CheckCircle;
+      default: return FileText;
+    }
+  };
+
+  const getActualStatusDisplay = (actualStatus: string | undefined) => {
+    switch (actualStatus) {
+      case 'expired':
+        return { text: 'VENCIDO', color: 'text-red-700 bg-red-100' };
+      case 'expiring_soon':
+        return { text: 'PRÓXIMO A VENCER', color: 'text-yellow-700 bg-yellow-100' };
+      case 'cancelled':
+        return { text: 'CANCELADO', color: 'text-red-700 bg-red-100' };
+      case 'completed':
+        return { text: 'FINALIZADO', color: 'text-purple-700 bg-purple-100' };
+      case 'renewed':
+        return { text: 'RENOVADO', color: 'text-blue-700 bg-blue-100' };
+      default:
+        return null;
+    }
+  };
+
+  const getActualStatusIcon = (status: string) => {
+    switch (status) {
+      case 'expiring_soon': return Clock;
+      case 'expired': return XCircle;
+      case 'completed': return CheckCircle;
+      case 'renewed': return RefreshCw;
       default: return FileText;
     }
   };
@@ -355,7 +461,27 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ onCreate
               <option value="rejected">Rechazado</option>
               <option value="signed">Firmado</option>
               <option value="completed">Completado</option>
+              <option value="active">Activo</option>
+              <option value="expiring_soon">Próximo a Vencer</option>
+              <option value="expired">Vencido</option>
+              <option value="cancelled">Cancelado</option>
+              <option value="renewed">Renovado</option>
             </select>
+          </div>
+          
+          {/* Archive Toggle */}
+          <div className="flex items-center space-x-2">
+            <label className="text-sm text-gray-600">Archivados:</label>
+            <button
+              onClick={() => setShowArchived(!showArchived)}
+              className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors duration-200 ${
+                showArchived 
+                  ? 'bg-blue-100 text-blue-700' 
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {showArchived ? 'Ocultar' : 'Mostrar'}
+            </button>
           </div>
           <div className="text-sm text-gray-500">
             {filteredContracts.length} contrato{filteredContracts.length !== 1 ? 's' : ''}
@@ -391,14 +517,27 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ onCreate
           filteredContracts.map((contract) => {
             const StatusIcon = getStatusIcon(contract.approval_status);
             const progress = signatureProgress[contract.id];
+            const actualStatusDisplay = getActualStatusDisplay(contract.actual_status);
             
             return (
               <motion.div
                 key={contract.id}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200"
+                className={`bg-white rounded-xl border p-6 hover:shadow-md transition-shadow duration-200 ${
+                  contract.archived 
+                    ? 'border-gray-300 opacity-75' 
+                    : 'border-gray-200'
+                }`}
               >
+                {/* Archive indicator */}
+                {contract.archived && (
+                  <div className="mb-3 flex items-center space-x-2 text-sm text-gray-500">
+                    <Archive className="w-4 h-4" />
+                    <span>Archivado el {new Date(contract.archived_at!).toLocaleDateString('es-ES')}</span>
+                  </div>
+                )}
+                
                 {/* Header */}
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center space-x-3">
@@ -443,6 +582,32 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ onCreate
                             <span>Enviar a Aprobación</span>
                           </button>
                         )}
+                        <button
+                          onClick={() => handleArchiveContract(contract)}
+                          disabled={archivingContract === contract.id}
+                          className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                        >
+                          {contract.archived ? (
+                            <>
+                              <ArchiveRestore className="w-4 h-4" />
+                              <span>Desarchivar</span>
+                            </>
+                          ) : (
+                            <>
+                              <Archive className="w-4 h-4" />
+                              <span>Archivar</span>
+                            </>
+                          )}
+                        </button>
+                        {contract.approval_status === 'cancelled' && (
+                          <button
+                            onClick={() => handleUncancelContract(contract)}
+                            className="w-full text-left px-3 py-2 text-sm text-green-600 hover:bg-green-50 flex items-center space-x-2"
+                          >
+                            <CheckCircle className="w-4 h-4" />
+                            <span>Descancelar</span>
+                          </button>
+                        )}
                         {(contract.approval_status === 'draft' || contract.approval_status === 'rejected') && (
                           <button
                             onClick={() => handleDeleteContract(contract)}
@@ -459,13 +624,66 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ onCreate
 
                 {/* Status */}
                 <div className="mb-4">
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(contract.approval_status)}`}>
-                    {contract.approval_status.replace('_', ' ')}
-                  </span>
+                  {/* Cancellation notice - most prominent */}
+                  {contract.approval_status === 'cancelled' && (
+                    <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <AlertTriangle className="w-4 h-4 text-red-600" />
+                        <span className="font-bold text-red-900">CONTRATO CANCELADO</span>
+                      </div>
+                      {contract.rejection_reason && (
+                        <p className="text-sm text-red-800">
+                          <strong>Razón:</strong> {contract.rejection_reason}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(contract.approval_status)}`}>
+                      {contract.approval_status.replace('_', ' ')}
+                    </span>
+                    
+                    {/* Additional status tags */}
+                    {actualStatusDisplay && (
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${actualStatusDisplay.color}`}>
+                        {actualStatusDisplay.text}
+                      </span>
+                    )}
+                    
+                    {contract.archived && (
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-gray-600 bg-gray-200">
+                        ARCHIVADO
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Contract Info */}
                 <div className="space-y-3 mb-4">
+                  {/* Contract Status Info */}
+                  {contract.actual_status && ['expiring_soon', 'expired', 'completed', 'renewed'].includes(contract.actual_status) && (
+                    <div className={`flex items-center space-x-2 text-sm p-2 rounded-lg ${
+                      contract.actual_status === 'expired' ? 'bg-red-50 border border-red-200' :
+                      contract.actual_status === 'expiring_soon' ? 'bg-yellow-50 border border-yellow-200' :
+                      contract.actual_status === 'completed' ? 'bg-purple-50 border border-purple-200' :
+                      'bg-blue-50 border border-blue-200'
+                    }`}>
+                      {(() => {
+                        const ActualStatusIcon = getActualStatusIcon(contract.actual_status);
+                        return ActualStatusIcon ? <ActualStatusIcon className="w-4 h-4" /> : null;
+                      })()}
+                      <span className="font-medium">
+                        {contract.actual_status === 'expiring_soon' ? 'Próximo a vencer' :
+                         contract.actual_status === 'expired' ? 'Contrato vencido' :
+                         contract.actual_status === 'completed' ? 'Contrato finalizado' :
+                         contract.actual_status === 'renewed' ? 'Contrato renovado' :
+                         contract.actual_status === 'cancelled' ? 'Contrato cancelado' :
+                         contract.actual_status}
+                      </span>
+                    </div>
+                  )}
+                  
                   {contract.client_name && (
                     <div className="flex items-center space-x-2 text-sm text-gray-600">
                       <Users className="w-4 h-4" />
@@ -480,46 +698,32 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ onCreate
                   )}
                   <div className="flex items-center space-x-2 text-sm text-gray-600">
                     <Calendar className="w-4 h-4" />
-                    <span>{formatDate(contract.created_at)}</span>
+                    <span>Creado: {formatDate(contract.created_at)}</span>
                   </div>
-                </div>
-
-                {/* Signature Progress */}
-                <div className="space-y-2">
-                  {getSignatureProgressDisplay(contract.id)}
-                  
-                  {/* Auto-renewal indicator */}
-                  {contract.auto_renewal && (
-                    <div className="flex items-center space-x-2 text-xs">
-                      <RefreshCw className="w-4 h-4 text-purple-500" />
-                      <span className="text-purple-600 font-medium">Renovación automática activada</span>
-                    </div>
-                  )}
-                  
-                  {/* Renewal reference */}
-                  {contract.parent_contract_id && (
-                    <div className="flex items-center space-x-2 text-xs">
-                      <FileText className="w-4 h-4 text-blue-500" />
-                      <span className="text-blue-600 font-medium">
-                        Renovación {contract.renewal_type === 'auto_renewal' ? 'automática' : 'manual'}
+                  {(contract.start_date || contract.end_date) && (
+                    <div className="flex items-center space-x-2 text-sm text-gray-600">
+                      <Calendar className="w-4 h-4" />
+                      <span>
+                        {contract.start_date && contract.end_date 
+                          ? `${formatDate(contract.start_date)} - ${formatDate(contract.end_date)}`
+                          : contract.start_date 
+                          ? `Inicio: ${formatDate(contract.start_date)}`
+                          : `Fin: ${formatDate(contract.end_date)}`
+                        }
                       </span>
                     </div>
                   )}
-                  
-                  {/* Expiry warning */}
-                  {contract.actual_status === 'expiring_soon' && (
-                    <div className="flex items-center space-x-2 text-xs">
-                      <AlertTriangle className="w-4 h-4 text-orange-500" />
-                      <span className="text-orange-600 font-medium">Próximo a vencer</span>
+                  {contract.parent_contract_id && (
+                    <div className="flex items-center space-x-2 text-sm text-blue-600">
+                      <RefreshCw className="w-4 h-4" />
+                      <span>Renovación {contract.renewal_type === 'auto_renewal' ? 'automática' : 'manual'}</span>
                     </div>
                   )}
-                  
-                  {contract.actual_status === 'expired' && (
-                    <div className="flex items-center space-x-2 text-xs">
-                      <XCircle className="w-4 h-4 text-red-500" />
-                      <span className="text-red-600 font-medium">Vencido</span>
-                    </div>
-                  )}
+                </div>
+
+                {/* Signature Progress */}
+                <div className="space-y-2 mb-4">
+                  {getSignatureProgressDisplay(contract.id)}
                 </div>
 
                 {/* Action Buttons */}
@@ -540,6 +744,22 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ onCreate
                       className="flex-1 text-sm bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors duration-200 font-medium text-center"
                     >
                       Editar
+                    </motion.button>
+                  )}
+                  {!contract.archived && (
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => handleArchiveContract(contract)}
+                      disabled={archivingContract === contract.id}
+                      className="px-2 py-2 text-sm bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors duration-200"
+                      title="Archivar contrato"
+                    >
+                      {archivingContract === contract.id ? (
+                        <LoadingSpinner size="small" />
+                      ) : (
+                        <Archive className="w-4 h-4" />
+                      )}
                     </motion.button>
                   )}
                 </div>

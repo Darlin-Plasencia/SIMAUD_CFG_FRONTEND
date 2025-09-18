@@ -13,11 +13,13 @@ import {
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { LoadingSpinner } from '../common/LoadingSpinner';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface RenewalRequestModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  preselectedContractId?: string;
 }
 
 interface Contract {
@@ -42,8 +44,10 @@ interface FormData {
 export const RenewalRequestModal: React.FC<RenewalRequestModalProps> = ({
   isOpen,
   onClose,
-  onSuccess
+  onSuccess,
+  preselectedContractId
 }) => {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [availableContracts, setAvailableContracts] = useState<Contract[]>([]);
@@ -51,7 +55,7 @@ export const RenewalRequestModal: React.FC<RenewalRequestModalProps> = ({
   
   const [formData, setFormData] = useState<FormData>({
     contract_id: '',
-    proposed_start_date: '',
+    proposed_start_date: '', 
     proposed_end_date: '',
     proposed_value: null,
     reason: '',
@@ -61,8 +65,16 @@ export const RenewalRequestModal: React.FC<RenewalRequestModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       loadAvailableContracts();
+      
+      // Si hay un contrato preseleccionado, configurarlo
+      if (preselectedContractId) {
+        setFormData(prev => ({
+          ...prev,
+          contract_id: preselectedContractId
+        }));
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, preselectedContractId]);
 
   useEffect(() => {
     if (formData.contract_id) {
@@ -89,13 +101,43 @@ export const RenewalRequestModal: React.FC<RenewalRequestModalProps> = ({
 
   const loadAvailableContracts = async () => {
     try {
-      // Get contracts that are signed and either expiring soon or expired
-      // but don't have pending renewals
-      const { data: contracts, error } = await supabase
-        .from('contracts')
-        .select('id, title, client_name, client_email, end_date, contract_value, auto_renewal')
+      console.log('🔍 Loading available contracts for renewal...');
+      
+      // For users, get contracts where they are signatories
+      // For gestores, get contracts they created
+      let contractsQuery;
+      
+      if (user?.role === 'user') {
+        // Get contracts where user is a signatory
+        const { data: signatories, error: signatoryError } = await supabase
+          .from('contract_signatories')
+          .select('contract_id')
+          .eq('user_id', user.id);
+          
+        if (signatoryError) throw signatoryError;
+        
+        const contractIds = signatories?.map(s => s.contract_id) || [];
+        
+        if (contractIds.length === 0) {
+          setAvailableContracts([]);
+          return;
+        }
+        
+        contractsQuery = supabase
+          .from('contracts')
+          .select('id, title, client_name, client_email, end_date, contract_value, auto_renewal, actual_status')
+          .in('id', contractIds);
+      } else {
+        // For gestores and above, get contracts they created
+        contractsQuery = supabase
+          .from('contracts')
+          .select('id, title, client_name, client_email, end_date, contract_value, auto_renewal, actual_status')
+          .eq('created_by', user?.id);
+      }
+      
+      const { data: contracts, error } = await contractsQuery
         .eq('approval_status', 'signed')
-        .in('actual_status', ['expiring_soon', 'expired'])
+        .in('actual_status', ['expiring_soon', 'expired', 'completed'])
         .not('end_date', 'is', null);
 
       if (error) throw error;
@@ -115,6 +157,7 @@ export const RenewalRequestModal: React.FC<RenewalRequestModalProps> = ({
         }
       }
 
+      console.log('✅ Found available contracts for renewal:', contractsWithoutRenewals.length);
       setAvailableContracts(contractsWithoutRenewals);
     } catch (error) {
       console.error('Error loading available contracts:', error);
@@ -155,12 +198,18 @@ export const RenewalRequestModal: React.FC<RenewalRequestModalProps> = ({
     setLoading(true);
 
     try {
+      // Get the user's session token
+      const { data: session, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session?.session?.access_token) {
+        throw new Error('No se pudo obtener la sesión del usuario');
+      }
+
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/renewal-manager?action=create`,
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            'Authorization': `Bearer ${session.session.access_token}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
@@ -241,7 +290,7 @@ export const RenewalRequestModal: React.FC<RenewalRequestModalProps> = ({
               value={formData.contract_id}
               onChange={(e) => handleInputChange('contract_id', e.target.value)}
               className="block w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-              disabled={loading}
+              disabled={loading || !!preselectedContractId}
               required
             >
               <option value="">Seleccionar contrato...</option>
@@ -254,6 +303,11 @@ export const RenewalRequestModal: React.FC<RenewalRequestModalProps> = ({
             {availableContracts.length === 0 && (
               <p className="text-sm text-gray-500 mt-1">
                 No hay contratos disponibles para renovación en este momento
+              </p>
+            )}
+            {preselectedContractId && (
+              <p className="text-sm text-blue-600 mt-1 flex items-center space-x-1">
+                <span>📌 Contrato preseleccionado desde la vista de detalles</span>
               </p>
             )}
           </div>
@@ -297,7 +351,8 @@ export const RenewalRequestModal: React.FC<RenewalRequestModalProps> = ({
           )}
 
           {/* New Contract Dates */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {user?.role !== 'user' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Nueva Fecha de Inicio *
@@ -331,10 +386,12 @@ export const RenewalRequestModal: React.FC<RenewalRequestModalProps> = ({
                 />
               </div>
             </div>
-          </div>
+            </div>
+          )}
 
           {/* New Value */}
-          <div>
+          {user?.role !== 'user' && (
+            <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Nuevo Valor del Contrato
             </label>
@@ -350,7 +407,8 @@ export const RenewalRequestModal: React.FC<RenewalRequestModalProps> = ({
                 disabled={loading}
               />
             </div>
-          </div>
+            </div>
+          )}
 
           {/* Reason */}
           <div>

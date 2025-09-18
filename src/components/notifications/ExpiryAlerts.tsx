@@ -11,6 +11,8 @@ import {
   X
 } from 'lucide-react';
 import { LoadingSpinner } from '../common/LoadingSpinner';
+import { useAuth } from '../../contexts/AuthContext';
+import { supabase } from '../../lib/supabase';
 
 interface ExpiringContract {
   id: string;
@@ -34,6 +36,7 @@ export const ExpiryAlerts: React.FC<ExpiryAlertsProps> = ({
   className = '',
   maxItems = 5
 }) => {
+  const { user } = useAuth();
   const [expiringContracts, setExpiringContracts] = useState<ExpiringContract[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -48,30 +51,68 @@ export const ExpiryAlerts: React.FC<ExpiryAlertsProps> = ({
   }, []);
 
   const loadExpiringContracts = async () => {
+    if (!user) return;
+    
     setLoading(true);
     setError('');
 
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/contract-lifecycle?action=get_expiring&daysAhead=30`,
-        {
-          headers: {
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+      // Calculate date 30 days from now
+      const thirtyDaysFromNow = new Date();
+      thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+      
+      let query = supabase
+        .from('contracts')
+        .select(`
+          id,
+          title,
+          client_name,
+          end_date,
+          contract_value,
+          auto_renewal,
+          created_by,
+          user_profiles!contracts_created_by_fkey(
+            id,
+            name,
+            email
+          )
+        `)
+        .lte('end_date', thirtyDaysFromNow.toISOString().split('T')[0])
+        .gte('end_date', new Date().toISOString().split('T')[0])
+        .in('approval_status', ['approved', 'signed'])
+        .in('actual_status', ['active'])
+        .order('end_date', { ascending: true });
 
-      if (!response.ok) {
-        throw new Error('Error al cargar contratos próximos a vencer');
+      // Filter based on user role - gestores see only their contracts
+      if (user.role === 'gestor') {
+        query = query.eq('created_by', user.id);
+      }
+      // Admin and supervisor see all contracts (handled by RLS)
+
+      const { data, error: dbError } = await query;
+
+      if (dbError) {
+        throw new Error(dbError.message);
       }
 
-      const data = await response.json();
-      setExpiringContracts(data.contracts || []);
+      // Calculate days until expiry for each contract
+      const contractsWithExpiry = (data || []).map(contract => {
+        const endDate = new Date(contract.end_date);
+        const today = new Date();
+        const diffTime = endDate.getTime() - today.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        
+        return {
+          ...contract,
+          days_until_expiry: Math.max(0, diffDays),
+          creator: contract.user_profiles
+        };
+      });
 
+      setExpiringContracts(contractsWithExpiry);
     } catch (error: any) {
       console.error('Error loading expiring contracts:', error);
-      setError(error.message || 'Error al cargar alertas');
+      setError(error.message || 'Error al cargar contratos próximos a vencer');
     } finally {
       setLoading(false);
     }

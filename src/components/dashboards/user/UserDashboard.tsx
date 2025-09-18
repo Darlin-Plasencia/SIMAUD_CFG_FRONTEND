@@ -25,7 +25,9 @@ import { supabase } from '../../../lib/supabase';
 import { useAuth } from '../../../contexts/AuthContext';
 import { UserProfile } from '../../common/UserProfile';
 import { ContractViewModal } from '../../contracts/ContractViewModal';
+import { NotificationCenter } from '../../notifications/NotificationCenter';
 import { LoadingSpinner } from '../../common/LoadingSpinner';
+import { SignatureCanvas } from '../../contracts/SignatureCanvas';
 import type { Contract } from '../../../types/contracts';
 
 type UserView = 'dashboard' | 'contracts' | 'profile';
@@ -47,6 +49,8 @@ export const UserDashboard: React.FC = () => {
   const [error, setError] = useState('');
   const [signingContract, setSigningContract] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState('');
+  const [showSignatureModal, setShowSignatureModal] = useState(false);
+  const [currentSignatory, setCurrentSignatory] = useState<any>(null);
 
   useEffect(() => {
     if (user) {
@@ -63,11 +67,11 @@ export const UserDashboard: React.FC = () => {
     try {
       console.log('🔍 Loading contracts for signatory user:', user.email, user.id);
 
-      // Obtener contratos donde el usuario es firmante
+      // PASO 1: Obtener registros de firmantes para este usuario
       const { data: signatories, error: signatoriesError } = await supabase
         .from('contract_signatories')
         .select('*')
-        .or(`user_id.eq.${user.id},email.eq.${user.email}`);
+        .or(`user_id.eq.${user.id},email.eq."${user.email}"`);
 
       if (signatoriesError) {
         console.error('❌ Error loading signatories:', signatoriesError);
@@ -77,7 +81,35 @@ export const UserDashboard: React.FC = () => {
       console.log('📝 Found signatory records:', signatories);
 
       if (!signatories || signatories.length === 0) {
-        console.log('📭 No signatory records found');
+        console.log('📭 No signatory records found for user:', user.email);
+        
+        // DEBUG: Check if there are signatories with this email but no user_id
+        const { data: emailSignatories } = await supabase
+          .from('contract_signatories')
+          .select('*')
+          .eq('email', user.email);
+        
+        console.log('📧 Signatories with matching email:', emailSignatories);
+        
+        if (emailSignatories && emailSignatories.length > 0) {
+          console.log('🔗 Found signatories by email - attempting to link to user_id...');
+          
+          // Auto-link signatories to this user
+          const { error: linkError } = await supabase
+            .from('contract_signatories')
+            .update({ user_id: user.id })
+            .eq('email', user.email)
+            .is('user_id', null);
+          
+          if (linkError) {
+            console.error('Error linking signatories:', linkError);
+          } else {
+            console.log('✅ Successfully linked signatories to user');
+            // Retry loading after linking
+            return loadSignatoryContracts();
+          }
+        }
+        
         setContracts([]);
         setLoading(false);
         return;
@@ -86,7 +118,7 @@ export const UserDashboard: React.FC = () => {
       const contractIds = signatories.map(s => s.contract_id);
       console.log('🔗 Contract IDs to fetch:', contractIds);
 
-      // Obtener contratos completos
+      // PASO 2: Obtener contratos completos y filtrar por estado
       const { data: contractsData, error: contractsError } = await supabase
         .from('contracts')
         .select(`
@@ -112,19 +144,41 @@ export const UserDashboard: React.FC = () => {
           end_date,
           generated_content,
           notes,
+          auto_renewal,
+          parent_contract_id,
+          renewal_type,
+          actual_status,
+          archived,
           template:contract_templates(title)
         `)
         .in('id', contractIds)
-        .eq('approval_status', 'approved'); // Solo contratos aprobados
+        .in('approval_status', ['approved', 'signed', 'cancelled']) // Incluir cancelados para mostrar a firmantes
+        .eq('archived', false); // No mostrar archivados
 
       if (contractsError) {
         console.error('❌ Error loading contracts:', contractsError);
         throw contractsError;
       }
 
-      console.log('📋 Found contracts:', contractsData);
+      console.log('📋 Found eligible contracts for signing:', contractsData?.length || 0);
+      console.log('📊 Contract details for debugging:', contractsData?.map(c => ({
+        id: c.id.slice(-8),
+        title: c.title,
+        approval_status: c.approval_status,
+        status: c.status,
+        actual_status: c.actual_status,
+        client: c.client_name
+      })));
+      
+      console.log('📊 Contract statuses:', contractsData?.map(c => ({
+        id: c.id.slice(-8),
+        title: c.title,
+        approval_status: c.approval_status,
+        status: c.status,
+        actual_status: c.actual_status
+      })));
 
-      // Combinar datos de contratos con estado de firmante
+      // PASO 3: Combinar datos de contratos con estado de firmante
       const contractsWithStatus = contractsData?.map(contract => {
         const signatory = signatories.find(s => s.contract_id === contract.id);
         return {
@@ -156,12 +210,8 @@ export const UserDashboard: React.FC = () => {
       return;
     }
 
-    setSigningContract(contract.id);
-    setError('');
-    setSuccessMessage('');
-
     try {
-      console.log('🖊️ Signing contract:', contract.id, 'for user:', user.email);
+      console.log('🔍 Finding signatory record for contract:', contract.id, 'user:', user.email);
 
       // Buscar el registro del firmante para este contrato
       const { data: signatory, error: signatoryError } = await supabase
@@ -173,11 +223,13 @@ export const UserDashboard: React.FC = () => {
 
       if (signatoryError) {
         console.error('❌ Error finding signatory:', signatoryError);
-        throw signatoryError;
+        setError('Error al buscar registro de firmante');
+        return;
       }
 
       if (!signatory) {
-        throw new Error('No se encontró el registro de firmante para este contrato');
+        setError('No se encontró el registro de firmante para este contrato');
+        return;
       }
 
       if (signatory.signed_at) {
@@ -185,44 +237,58 @@ export const UserDashboard: React.FC = () => {
         return;
       }
 
-      console.log('📝 Found signatory record:', signatory.id);
+      console.log('📝 Found signatory record:', signatory);
+      setCurrentSignatory({ ...signatory, contract_title: contract.title });
+      setShowSignatureModal(true);
+      
+    } catch (error: any) {
+      console.error('Error finding signatory:', error);
+      setError('Error al preparar la firma del contrato');
+    }
+  };
 
-      // Actualizar el registro con la firma
+  const handleSaveSignature = async (signatureDataUrl: string) => {
+    if (!currentSignatory) return;
+
+    try {
+      console.log('💾 Saving signature for signatory:', currentSignatory.id);
+
+      // Update signatory with signature
       const { error: updateError } = await supabase
         .from('contract_signatories')
         .update({
           signed_at: new Date().toISOString(),
+          signature_url: signatureDataUrl,
           status: 'signed',
-          ip_address: '127.0.0.1', // Por ahora IP estática
+          ip_address: '127.0.0.1',
           user_agent: navigator.userAgent
         })
-        .eq('id', signatory.id);
+        .eq('id', currentSignatory.id);
 
       if (updateError) {
         console.error('❌ Error updating signatory:', updateError);
         throw updateError;
       }
 
-      console.log('✅ Contract signed successfully');
+      console.log('✅ Digital signature saved successfully');
 
-      // Actualizar el estado local
+      // Update local state
       setContracts(prev => prev.map(c => 
-        c.id === contract.id 
+        c.id === currentSignatory.contract_id 
           ? { ...c, signatory_status: 'signed' as const, signed_at: new Date().toISOString() }
           : c
       ));
 
-      setSuccessMessage(`Contrato "${contract.title}" firmado exitosamente`);
+      setSuccessMessage(`Contrato "${currentSignatory.contract_title}" firmado digitalmente con éxito`);
+      setShowSignatureModal(false);
+      setCurrentSignatory(null);
       
-      // Limpiar mensaje después de 5 segundos
+      // Clear message after 5 seconds
       setTimeout(() => setSuccessMessage(''), 5000);
       
     } catch (error: any) {
-      console.error('💥 Error signing contract:', error);
-      setError(error.message || 'Error al firmar el contrato');
-      setTimeout(() => setError(''), 5000);
-    } finally {
-      setSigningContract(null);
+      console.error('💥 Error saving signature:', error);
+      throw error;
     }
   };
 
@@ -468,6 +534,20 @@ export const UserDashboard: React.FC = () => {
           contract={selectedContract}
         />
       )}
+      
+      {/* Digital Signature Modal */}
+      {showSignatureModal && currentSignatory && (
+        <SignatureCanvas
+          isOpen={showSignatureModal}
+          onClose={() => {
+            setShowSignatureModal(false);
+            setCurrentSignatory(null);
+          }}
+          onSave={handleSaveSignature}
+          signerName={currentSignatory.name}
+          contractTitle={currentSignatory.contract_title}
+        />
+      )}
     </div>
   );
 };
@@ -656,8 +736,34 @@ const ContractsView: React.FC<{
           key={contract.id}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200"
+          className={`bg-white rounded-xl border p-6 hover:shadow-md transition-shadow duration-200 ${
+            contract.archived 
+              ? 'border-gray-300 opacity-75' 
+              : contract.approval_status === 'cancelled' 
+              ? 'border-red-200 bg-red-50'
+              : 'border-gray-200'
+          }`}
         >
+          {/* Cancellation Notice for Signatories */}
+          {contract.approval_status === 'cancelled' && (
+            <div className="mb-4 p-3 bg-red-100 border border-red-200 rounded-lg">
+              <div className="flex items-center space-x-2 mb-2">
+                <AlertTriangle className="w-4 h-4 text-red-600" />
+                <h4 className="font-bold text-red-900">CONTRATO CANCELADO</h4>
+              </div>
+              <p className="text-sm text-red-800">
+                Este contrato ha sido cancelado y ya no requiere firma.
+              </p>
+              {contract.rejection_reason && (
+                <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded">
+                  <p className="text-xs text-red-700">
+                    <strong>Razón:</strong> {contract.rejection_reason}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+          
           {/* Header */}
           <div className="flex items-start justify-between mb-4">
             <div className="flex items-center space-x-3">
@@ -683,17 +789,84 @@ const ContractsView: React.FC<{
 
           {/* Status */}
           <div className="mb-4">
-            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-              contract.signatory_status === 'signed' 
-                ? 'text-green-600 bg-green-100'
-                : 'text-orange-600 bg-orange-100'
-            }`}>
-              {contract.signatory_status === 'signed' ? 'Firmado' : 'Pendiente de Firma'}
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Contract approval status */}
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                contract.approval_status === 'cancelled' ? 'text-red-600 bg-red-100' :
+                contract.approval_status === 'signed' ? 'text-blue-600 bg-blue-100' :
+                'text-green-600 bg-green-100'
+              }`}>
+                {contract.approval_status === 'cancelled' ? 'CANCELADO' :
+                 contract.approval_status === 'signed' ? 'Firmado' :
+                 contract.approval_status.replace('_', ' ')}
+              </span>
+              
+              {/* Signatory status (only for non-cancelled) */}
+              {contract.approval_status !== 'cancelled' && (
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                  contract.signatory_status === 'signed' 
+                    ? 'text-green-600 bg-green-100'
+                    : 'text-orange-600 bg-orange-100'
+                }`}>
+                  {contract.signatory_status === 'signed' ? 'Mi Firma: ✓' : 'Pendiente de Firma'}
+                </span>
+              )}
+              
+              {/* Additional status indicators */}
+              {contract.actual_status === 'expired' && (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold text-red-700 bg-red-100">
+                  VENCIDO
+                </span>
+              )}
+              {contract.actual_status === 'expiring_soon' && (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold text-yellow-700 bg-yellow-100">
+                  PRÓXIMO A VENCER
+                </span>
+              )}
+              {contract.approval_status === 'cancelled' && (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold text-red-700 bg-red-100">
+                  CANCELADO
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Contract Info */}
           <div className="space-y-2 mb-4">
+            {/* Contract Status Alerts */}
+            {contract.approval_status === 'cancelled' && (
+              <div className={`flex items-center space-x-2 text-sm p-2 rounded-lg ${
+                'bg-red-50 border border-red-200'
+              }`}>
+                <AlertTriangle className="w-4 h-4" />
+                <span className="font-medium">
+                  CONTRATO CANCELADO
+                </span>
+              </div>
+            )}
+            
+            {['expired', 'expiring_soon'].includes(contract.actual_status) && (
+              <div className={`flex items-center space-x-2 text-sm p-2 rounded-lg ${
+                contract.actual_status === 'expired' ? 'bg-red-50 border border-red-200' :
+                'bg-yellow-50 border border-yellow-200'
+              }`}>
+                <AlertTriangle className="w-4 h-4" />
+                <span className="font-medium">
+                  {contract.actual_status === 'expired' ? 'Contrato Vencido' :
+                   'Próximo a Vencer'}
+                </span>
+              </div>
+            )}
+
+            {/* Cancellation reason display */}
+            {contract.approval_status === 'cancelled' && contract.rejection_reason && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-2">
+                <p className="text-xs text-red-700">
+                  <strong>Razón de cancelación:</strong> {contract.rejection_reason}
+                </p>
+              </div>
+            )}
+            
             <div className="flex items-center space-x-2 text-sm text-gray-600">
               <Users className="w-4 h-4" />
               <span className="truncate">{contract.client_name}</span>
@@ -725,9 +898,9 @@ const ContractsView: React.FC<{
               className="flex-1 text-sm bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors duration-200 font-medium text-center flex items-center justify-center space-x-1"
             >
               <Eye className="w-4 h-4" />
-              Ver Contrato
+              <span>Ver Contrato</span>
             </motion.button>
-            {contract.signatory_status === 'pending' && (
+            {contract.signatory_status === 'pending' && contract.approval_status !== 'cancelled' && (
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}

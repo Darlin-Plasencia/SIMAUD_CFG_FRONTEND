@@ -12,6 +12,7 @@ import {
   FileText
 } from 'lucide-react';
 import { LoadingSpinner } from '../common/LoadingSpinner';
+import { supabase } from '../../lib/supabase';
 
 interface RenewalProcessModalProps {
   isOpen: boolean;
@@ -29,10 +30,10 @@ export const RenewalProcessModal: React.FC<RenewalProcessModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [action, setAction] = useState<'approve' | 'reject' | null>(null);
-  const [response, setResponse] = useState('');
+  const [gestorResponse, setGestorResponse] = useState('');
 
   const handleSubmit = async (selectedAction: 'approve' | 'reject') => {
-    if (selectedAction === 'reject' && !response.trim()) {
+    if (selectedAction === 'reject' && !gestorResponse.trim()) {
       setError('Debes proporcionar una razón para rechazar la renovación');
       return;
     }
@@ -41,18 +42,25 @@ export const RenewalProcessModal: React.FC<RenewalProcessModalProps> = ({
     setError('');
 
     try {
+      // Get the user's session token
+      const { data: session, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session?.session) {
+        throw new Error('No se pudo obtener la sesión del usuario');
+      }
+
       const requestResponse = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/renewal-manager?action=process`,
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            'Authorization': `Bearer ${session.session.access_token}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
             renewal_id: renewal.id,
-            status: selectedAction,
-            gestor_response: response
+            status: selectedAction === 'approve' ? 'approved' : 'rejected',
+            gestor_response: gestorResponse,
+            processed_by: session.session.user.id
           })
         }
       );
@@ -67,7 +75,17 @@ export const RenewalProcessModal: React.FC<RenewalProcessModalProps> = ({
         throw new Error(result.error || 'Error al procesar renovación');
       }
 
+      // Show success message and close modal
+      if (selectedAction === 'approve') {
+        console.log('✅ Renovación aprobada exitosamente');
+      } else {
+        console.log('✅ Renovación rechazada exitosamente');
+      }
+      
+      // Close modal and refresh parent
       onSuccess();
+      onClose();
+      
     } catch (error: any) {
       console.error('Error processing renewal:', error);
       setError(error.message || 'Error al procesar la renovación');
@@ -205,8 +223,8 @@ export const RenewalProcessModal: React.FC<RenewalProcessModalProps> = ({
               Respuesta del Gestor
             </label>
             <textarea
-              value={response}
-              onChange={(e) => setResponse(e.target.value)}
+              value={gestorResponse}
+              onChange={(e) => setGestorResponse(e.target.value)}
               rows={3}
               className="block w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="Proporciona comentarios sobre la decisión..."

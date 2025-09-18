@@ -18,8 +18,10 @@ import {
   DollarSign,
   Clock,
   Target,
-  RefreshCw
+  RefreshCw,
+  AlertTriangle
 } from 'lucide-react';
+import { supabase } from '../../../lib/supabase';
 import { useAuth } from '../../../contexts/AuthContext';
 import { UserManagement } from './UserManagement';
 import { TemplateManagement } from './TemplateManagement';
@@ -28,11 +30,13 @@ import { UserProfile } from '../../common/UserProfile';
 import { ContractManagement } from '../../contracts/ContractManagement';
 import { ContractApprovalQueue } from '../../contracts/ContractApprovalQueue';
 import { ReportsCenter } from '../../reports/ReportsCenter';
+import { RenewalCenter } from '../../renewals/RenewalCenter';
+import { SystemConfiguration } from '../admin/SystemConfiguration';
 import { NotificationCenter } from '../../notifications/NotificationCenter';
 import { ExpiryAlerts } from '../../notifications/ExpiryAlerts';
 import { LoadingSpinner } from '../../common/LoadingSpinner';
 
-type AdminView = 'dashboard' | 'users' | 'templates' | 'variables' | 'contracts' | 'approvals' | 'reports' | 'settings' | 'profile';
+type AdminView = 'dashboard' | 'users' | 'templates' | 'variables' | 'contracts' | 'approvals' | 'renewals' | 'reports' | 'settings' | 'profile';
 
 export const AdminDashboard: React.FC = () => {
   const { user, logout } = useAuth();
@@ -49,6 +53,7 @@ export const AdminDashboard: React.FC = () => {
     { id: 'variables', label: 'Variables Sistema', icon: Settings },
     { id: 'contracts', label: 'Contratos', icon: FileText },
     { id: 'approvals', label: 'Aprobaciones', icon: Bell },
+    { id: 'renewals', label: 'Renovaciones', icon: RefreshCw },
     { id: 'reports', label: 'Centro de Reportes', icon: BarChart3 },
     { id: 'settings', label: 'Configuración', icon: Settings },
     { id: 'profile', label: 'Mi Perfil', icon: UserCheck }
@@ -67,11 +72,23 @@ export const AdminDashboard: React.FC = () => {
     setError('');
     
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        console.warn('No authenticated session found, skipping dashboard data load');
+        setDashboardData(null);
+        setLoading(false);
+        return;
+      }
+
+      if (!import.meta.env.VITE_SUPABASE_URL) {
+        throw new Error('VITE_SUPABASE_URL no está configurado');
+      }
+
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dashboard-stats?role=admin&userId=${user.id}`,
         {
           headers: {
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            'Authorization': `Bearer ${session.access_token}`,
             'Content-Type': 'application/json'
           }
         }
@@ -103,26 +120,18 @@ export const AdminDashboard: React.FC = () => {
         return <ContractManagement onCreateContract={handleCreateContract} />;
       case 'approvals':
         return <ContractApprovalQueue />;
+      case 'renewals':
+        return <RenewalCenter />;
       case 'reports':
         return <ReportsCenter />;
+      case 'settings':
+        return <SystemConfiguration />;
       case 'profile':
         return <UserProfile />;
       case 'dashboard':
         return <DashboardHome data={dashboardData} loading={loading} error={error} onRefresh={loadDashboardData} />;
       default:
-        return (
-          <div className="flex items-center justify-center h-64">
-            <div className="text-center">
-              <div className="text-gray-400 mb-4">
-                <Settings className="w-16 h-16 mx-auto" />
-              </div>
-              <h3 className="text-xl font-semibold text-gray-700 mb-2">
-                {navigationItems.find(item => item.id === currentView)?.label}
-              </h3>
-              <p className="text-gray-500">Esta sección estará disponible próximamente.</p>
-            </div>
-          </div>
-        );
+        return <DashboardHome data={dashboardData} loading={loading} error={error} onRefresh={loadDashboardData} />;
     }
   };
 
@@ -248,6 +257,7 @@ export const AdminDashboard: React.FC = () => {
                   {currentView === 'variables' && 'Administra variables del sistema'}
                   {currentView === 'contracts' && 'Gestiona contratos y documentos'}
                   {currentView === 'approvals' && 'Revisa y aprueba contratos pendientes'}
+                  {currentView === 'renewals' && 'Gestiona renovaciones de contratos'}
                   {currentView === 'reports' && 'Centro completo de reportes y analytics'}
                   {currentView === 'settings' && 'Configuración del sistema'}
                   {currentView === 'profile' && 'Gestiona tu información personal'}
@@ -281,7 +291,7 @@ export const AdminDashboard: React.FC = () => {
         {/* Page Content */}
         <main className="flex-1 overflow-auto bg-gray-50">
           <div className="p-6">
-            {/* Expiry Alerts for Dashboard */}
+            {/* Expiry Alerts only for Dashboard */}
             {currentView === 'dashboard' && (
               <div className="mb-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">⚠️ Contratos Próximos a Vencer</h3>
@@ -379,12 +389,12 @@ const DashboardHome: React.FC<{
       description: 'Tasa de aprobación'
     },
     {
-      title: 'Aprobaciones Pendientes',
-      value: data.stats.pending_approvals.toString(),
-      change: `${data.stats.contracts_this_week}`,
+      title: 'Contratos Activos',
+      value: (data.stats.active_contracts || 0).toString(),
+      change: `${data.stats.expiring_soon || 0}`,
       icon: Clock,
       color: 'from-orange-500 to-orange-600',
-      description: 'contratos esta semana'
+      description: 'próximos a vencer'
     }
   ];
 

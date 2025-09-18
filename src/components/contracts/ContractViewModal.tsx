@@ -14,10 +14,17 @@ import {
   History,
   Users,
   Eye,
-  MessageCircle
+  MessageCircle,
+  RefreshCw,
+  AlertTriangle,
+  PenTool,
+  Download
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { LoadingSpinner } from '../common/LoadingSpinner';
+import { RenewalRequestButton } from '../renewals/RenewalRequestButton';
+import { ContractCancellationModal } from './ContractCancellationModal';
+import { SignatureCanvas } from './SignatureCanvas';
 import type { 
   Contract, 
   ContractSignatory, 
@@ -42,6 +49,16 @@ export const ContractViewModal: React.FC<ContractViewModalProps> = ({
   const [versions, setVersions] = useState<ContractVersion[]>([]);
   const [auditLogs, setAuditLogs] = useState<ContractAuditLog[]>([]);
   const [previewContent, setPreviewContent] = useState('');
+  const [showCancellationModal, setShowCancellationModal] = useState(false);
+  const [showSignatureModal, setShowSignatureModal] = useState(false);
+  const [currentSignatory, setCurrentSignatory] = useState<ContractSignatory | null>(null);
+  const [pdfGenerating, setPdfGenerating] = useState(false);
+  const [renewalStatus, setRenewalStatus] = useState({
+    hasRenewal: false,
+    status: null as string | null,
+    rejectionReason: null as string | null,
+    renewalDate: null as string | null
+  });
 
   useEffect(() => {
     if (isOpen) {
@@ -49,9 +66,126 @@ export const ContractViewModal: React.FC<ContractViewModalProps> = ({
     }
   }, [isOpen, contract.id]);
 
+  const loadRenewalStatus = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('contract_renewals')
+        .select('status, gestor_response, requested_at')
+        .eq('original_contract_id', contract.id)
+        .order('requested_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error && error.code !== 'PGRST116') {
+        throw error;
+      }
+
+      if (data) {
+        setRenewalStatus({
+          hasRenewal: true,
+          status: data.status,
+          rejectionReason: data.gestor_response,
+          renewalDate: data.requested_at
+        });
+      } else {
+        setRenewalStatus({
+          hasRenewal: false,
+          status: null,
+          rejectionReason: null,
+          renewalDate: null
+        });
+      }
+    } catch (error) {
+      console.error('Error loading renewal status:', error);
+      setRenewalStatus({
+        hasRenewal: false,
+        status: null,
+        rejectionReason: null,
+        renewalDate: null
+      });
+    }
+  };
+
+  const handleDigitalSign = (signatory: ContractSignatory) => {
+    setCurrentSignatory(signatory);
+    setShowSignatureModal(true);
+  };
+
+  const handleSaveSignature = async (signatureDataUrl: string) => {
+    if (!currentSignatory) return;
+
+    try {
+      // Update signatory with signature
+      const { error } = await supabase
+        .from('contract_signatories')
+        .update({
+          signed_at: new Date().toISOString(),
+          signature_url: signatureDataUrl,
+          status: 'signed',
+          ip_address: '127.0.0.1',
+          user_agent: navigator.userAgent
+        })
+        .eq('id', currentSignatory.id);
+
+      if (error) throw error;
+      setShowSignatureModal(false);
+      setCurrentSignatory(null);
+      await loadContractData(); // Refresh data
+    } catch (error) {
+      console.error('Error saving signature:', error);
+      throw error;
+    }
+  };
+
+  const generateContractPDF = async () => {
+    setPdfGenerating(true);
+    
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('No authenticated session');
+
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/contract-pdf`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            contract_id: contract.id,
+            action: 'generate'
+          })
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Error generating PDF');
+      }
+
+      const result = await response.json();
+      
+      if (result.success && result.html) {
+        // Open PDF in new window
+        const newWindow = window.open('', '_blank');
+        if (newWindow) {
+          newWindow.document.write(result.html);
+          newWindow.document.close();
+        }
+      }
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+    } finally {
+      setPdfGenerating(false);
+    }
+  };
+
   const loadContractData = async () => {
     setLoading(true);
     try {
+      // Load renewal status first
+      await loadRenewalStatus();
+
       // Cargar firmantes
       console.log('Loading signatories for contract:', contract.id);
       
@@ -112,6 +246,11 @@ export const ContractViewModal: React.FC<ContractViewModalProps> = ({
       case 'rejected': return 'text-red-600 bg-red-100';
       case 'signed': return 'text-blue-600 bg-blue-100';
       case 'completed': return 'text-purple-600 bg-purple-100';
+      case 'active': return 'text-green-600 bg-green-100';
+      case 'expiring_soon': return 'text-yellow-600 bg-yellow-100';
+      case 'expired': return 'text-red-600 bg-red-100';
+      case 'cancelled': return 'text-gray-600 bg-gray-100';
+      case 'renewed': return 'text-blue-600 bg-blue-100';
       default: return 'text-gray-600 bg-gray-100';
     }
   };
@@ -123,6 +262,11 @@ export const ContractViewModal: React.FC<ContractViewModalProps> = ({
       case 'rejected': return XCircle;
       case 'signed': return Users;
       case 'completed': return CheckCircle;
+      case 'active': return CheckCircle;
+      case 'expiring_soon': return Clock;
+      case 'expired': return XCircle;
+      case 'cancelled': return XCircle;
+      case 'renewed': return RefreshCw;
       default: return FileText;
     }
   };
@@ -173,9 +317,51 @@ export const ContractViewModal: React.FC<ContractViewModalProps> = ({
             <div>
               <h3 className="text-lg font-semibold text-gray-900">{contract.title}</h3>
               <div className="flex items-center space-x-2 mt-1">
-                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(contract.approval_status)}`}>
-                  {contract.approval_status.replace('_', ' ')}
-                </span>
+                <div className="flex flex-wrap gap-2">
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(contract.approval_status)}`}>
+                    {contract.approval_status.replace('_', ' ')}
+                  </span>
+                  
+                  {/* Actual Status */}
+                  {contract.actual_status && contract.actual_status !== 'draft' && (
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(contract.actual_status)}`}>
+                      {contract.actual_status === 'expiring_soon' ? 'Próximo a vencer' :
+                       contract.actual_status === 'expired' ? 'Vencido' :
+                       contract.actual_status === 'completed' ? 'Finalizado' :
+                       contract.actual_status === 'renewed' ? 'Renovado' :
+                       contract.actual_status === 'cancelled' ? 'Cancelado' :
+                       contract.actual_status}
+                    </span>
+                  )}
+                  
+                  {/* Cancel Contract Button */}
+                  {!['cancelled', 'completed', 'expired', 'renewed'].includes(contract.actual_status || '') && 
+                   contract.approval_status !== 'cancelled' && (
+                    <button
+                      onClick={() => setShowCancellationModal(true)}
+                      className="ml-2 flex items-center space-x-1 px-3 py-1 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors duration-200 text-xs font-medium"
+                    >
+                      <AlertTriangle className="w-3 h-3" />
+                      <span>Cancelar Contrato</span>
+                    </button>
+                  )}
+                  
+                  {/* Auto-renewal indicator */}
+                  {contract.auto_renewal && (
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-purple-600 bg-purple-100">
+                      <RefreshCw className="w-3 h-3 mr-1" />
+                      Auto-renovación
+                    </span>
+                  )}
+                  
+                  {/* Renewal reference */}
+                  {contract.parent_contract_id && (
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-blue-600 bg-blue-100">
+                      <FileText className="w-3 h-3 mr-1" />
+                      Renovación {contract.renewal_type === 'auto_renewal' ? 'Automática' : 'Manual'}
+                    </span>
+                  )}
+                </div>
                 <span className="text-sm text-gray-500">
                   Versión {contract.current_version}
                 </span>
@@ -223,6 +409,26 @@ export const ContractViewModal: React.FC<ContractViewModalProps> = ({
             <>
               {activeTab === 'details' && (
                 <div className="space-y-6">
+                  {/* Cancellation Notice - Most Prominent */}
+                  {contract.approval_status === 'cancelled' && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <AlertTriangle className="w-5 h-5 text-red-600" />
+                        <h4 className="font-bold text-red-900">CONTRATO CANCELADO</h4>
+                      </div>
+                      <p className="text-sm text-red-800">
+                        Este contrato ha sido cancelado y ya no está activo.
+                      </p>
+                      {contract.rejection_reason && (
+                        <div className="mt-3 p-3 bg-red-100 border border-red-300 rounded">
+                          <p className="text-sm text-red-800">
+                            <strong>Razón de cancelación:</strong> {contract.rejection_reason}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Contract Info */}
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     <div className="bg-gray-50 rounded-lg p-4">
@@ -256,6 +462,89 @@ export const ContractViewModal: React.FC<ContractViewModalProps> = ({
                       <p className="text-xs text-gray-500">Fin: {formatDate(contract.end_date)}</p>
                     </div>
                   </div>
+
+                  {/* Renewal Status Display */}
+                  {renewalStatus.hasRenewal && (
+                    <div className={`p-4 rounded-lg border ${
+                      renewalStatus.status === 'approved' ? 'bg-green-50 border-green-200' :
+                      renewalStatus.status === 'rejected' ? 'bg-red-50 border-red-200' :
+                      renewalStatus.status === 'pending' ? 'bg-blue-50 border-blue-200' :
+                      'bg-gray-50 border-gray-200'
+                    }`}>
+                      <div className="flex items-center space-x-2 mb-2">
+                        <RefreshCw className={`w-5 h-5 ${
+                          renewalStatus.status === 'approved' ? 'text-green-600' :
+                          renewalStatus.status === 'rejected' ? 'text-red-600' :
+                          renewalStatus.status === 'pending' ? 'text-blue-600' :
+                          'text-gray-600'
+                        }`} />
+                        <h4 className={`font-medium ${
+                          renewalStatus.status === 'approved' ? 'text-green-900' :
+                          renewalStatus.status === 'rejected' ? 'text-red-900' :
+                          renewalStatus.status === 'pending' ? 'text-blue-900' :
+                          'text-gray-900'
+                        }`}>
+                          {renewalStatus.status === 'approved' ? '✅ Renovación Aprobada' :
+                           renewalStatus.status === 'rejected' ? '❌ Renovación Rechazada' :
+                           renewalStatus.status === 'pending' ? '⏳ Renovación Solicitada' :
+                           'Estado de Renovación Desconocido'}
+                        </h4>
+                      </div>
+                      <p className={`text-sm ${
+                        renewalStatus.status === 'approved' ? 'text-green-700' :
+                        renewalStatus.status === 'rejected' ? 'text-red-700' :
+                        renewalStatus.status === 'pending' ? 'text-blue-700' :
+                        'text-gray-700'
+                      }`}>
+                        {renewalStatus.status === 'approved' ? 'Se ha creado un nuevo contrato basado en esta renovación.' :
+                         renewalStatus.status === 'rejected' ? `Renovación rechazada. ${renewalStatus.rejectionReason || 'Sin comentarios adicionales.'}` :
+                         renewalStatus.status === 'pending' ? 'La solicitud de renovación está siendo revisada por el gestor.' :
+                         'Estado de renovación no reconocido.'}
+                      </p>
+                      {renewalStatus.renewalDate && (
+                        <p className="text-xs text-gray-500 mt-2">
+                          Solicitado el {formatDate(renewalStatus.renewalDate)}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Renewal Actions for expired/completed contracts */}
+                  {(contract.actual_status === 'expired' || contract.actual_status === 'completed') && !renewalStatus.hasRenewal && (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <RefreshCw className="w-5 h-5 text-green-600" />
+                          <div>
+                            <h4 className="font-medium text-green-900">Contrato Finalizado</h4>
+                            <p className="text-sm text-green-700">Este contrato ha llegado al final de su vigencia</p>
+                          </div>
+                        </div>
+                        <RenewalRequestButton 
+                          contract={contract}
+                          preselectedContractId={contract.id}
+                          onSuccess={() => {
+                            // Reload contract data
+                            loadContractData();
+                          }}
+                          size="medium"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Show renewal request status even for active contracts */}
+                  {renewalStatus.hasRenewal && renewalStatus.status === 'pending' && contract.actual_status === 'active' && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <div className="flex items-center space-x-2">
+                        <RefreshCw className="w-5 h-5 text-blue-600" />
+                        <div>
+                          <h4 className="font-medium text-blue-900">Renovación en Proceso</h4>
+                          <p className="text-sm text-blue-700">Ya existe una solicitud de renovación pendiente para este contrato</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Signature Progress - Solo mostrar si hay firmantes */}
                   {signatories.length > 0 && (
@@ -387,16 +676,75 @@ export const ContractViewModal: React.FC<ContractViewModalProps> = ({
                             </div>
                           )}
                         </div>
-                        {signatory.signed_at && (
-                          <div className="mt-3 pt-3 border-t border-gray-200">
-                            <p className="text-xs text-gray-500">
-                              Firmado el {formatDate(signatory.signed_at)}
-                            </p>
-                          </div>
-                        )}
+                        
+                        {/* Signature Display */}
+                        <div className="mt-3 pt-3 border-t border-gray-200">
+                          {signatory.signed_at ? (
+                            <div className="space-y-2">
+                              <p className="text-xs text-gray-500">
+                                Firmado el {formatDate(signatory.signed_at)}
+                              </p>
+                              {signatory.signature_url && (
+                                <div className="bg-white border border-gray-200 rounded-lg p-3">
+                                  <p className="text-xs text-gray-600 mb-2">Firma Digital:</p>
+                                  <img 
+                                    src={signatory.signature_url} 
+                                    alt={`Firma de ${signatory.name}`}
+                                    className="h-16 border border-gray-200 rounded bg-gray-50"
+                                    style={{ maxWidth: '200px' }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs text-gray-500">Pendiente de firma</p>
+                              {/* Show sign button only for current user */}
+                              <button
+                                onClick={() => handleDigitalSign(signatory)}
+                                className="flex items-center space-x-1 px-3 py-1 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors duration-200 text-xs"
+                              >
+                                <PenTool className="w-3 h-3" />
+                                <span>Firmar</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </motion.div>
                     ))
                   )}
+                  
+                  {/* PDF Generation Section */}
+                  <div className="mt-6 pt-6 border-t border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="font-medium text-gray-900">Documento PDF</h4>
+                        <p className="text-sm text-gray-600">
+                          {signatories.filter(s => s.signed_at).length === signatories.length
+                            ? 'Todas las firmas completadas - PDF disponible para descarga'
+                            : `${signatories.filter(s => s.signed_at).length}/${signatories.length} firmas completadas`
+                          }
+                        </p>
+                      </div>
+                      <button
+                        onClick={generateContractPDF}
+                        disabled={pdfGenerating}
+                        className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors duration-200 disabled:opacity-50"
+                      >
+                        {pdfGenerating ? (
+                          <>
+                            <LoadingSpinner size="small" />
+                            <span>Generando PDF...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Download className="w-4 h-4" />
+                            <span>Ver/Descargar PDF</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -486,6 +834,34 @@ export const ContractViewModal: React.FC<ContractViewModalProps> = ({
             </>
           )}
         </div>
+        
+        {/* Contract Cancellation Modal */}
+        {showCancellationModal && (
+          <ContractCancellationModal
+            isOpen={showCancellationModal}
+            onClose={() => setShowCancellationModal(false)}
+            contract={contract}
+            onSuccess={() => {
+              setShowCancellationModal(false);
+              onClose(); // Close the view modal too
+            }}
+          />
+        )}
+        
+        {/* Digital Signature Modal */}
+        {showSignatureModal && currentSignatory && (
+          <SignatureCanvas
+            isOpen={showSignatureModal}
+            onClose={() => {
+              setShowSignatureModal(false);
+              setCurrentSignatory(null);
+            }}
+            onSave={handleSaveSignature}
+            signerName={currentSignatory.name}
+            contractTitle={contract.title}
+            loading={loading}
+          />
+        )}
       </motion.div>
     </div>
   );
@@ -606,6 +982,7 @@ const ContractContentViewer: React.FC<{ contract: any; previewContent: string }>
     </div>
   );
 };
+
 // Componente para mostrar historial de aprobaciones
 const ApprovalHistory: React.FC<{ contractId: string }> = ({ contractId }) => {
   const [approvals, setApprovals] = useState<any[]>([]);

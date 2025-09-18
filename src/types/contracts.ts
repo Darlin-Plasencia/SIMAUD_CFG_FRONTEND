@@ -9,6 +9,7 @@ export interface Contract {
   client_phone: string | null;
   status: 'draft' | 'active' | 'completed' | 'cancelled';
   approval_status: 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'signed' | 'completed';
+  actual_status: 'draft' | 'active' | 'expiring_soon' | 'expired' | 'completed' | 'cancelled' | 'renewed';
   current_version: number;
   approved_by: string | null;
   approved_at: string | null;
@@ -24,7 +25,9 @@ export interface Contract {
   auto_renewal: boolean;
   parent_contract_id: string | null;
   renewal_type: 'original' | 'manual_renewal' | 'auto_renewal' | null;
-  actual_status: string | null;
+  archived: boolean;
+  archived_at: string | null;
+  archived_by: string | null;
 }
 
 export interface ContractSignatory {

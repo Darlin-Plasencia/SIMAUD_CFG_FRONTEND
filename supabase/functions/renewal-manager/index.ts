@@ -136,9 +136,105 @@ async function listRenewals(supabase: any, userId: string, statusFilter?: string
       // Can see all renewals
     } else {
       // Can only see renewals for their contracts or renewals they requested
-      query = query.or(`requested_by.eq.${userId},original_contract.created_by.eq.${userId}`);
+      // We need to use two separate queries since we can't use nested columns in a single or() filter
+      
+      // First get renewals requested by this user
+      const { data: requestedRenewals, error: requestedError } = await supabase
+        .from('contract_renewals')
+        .select(`
+          *,
+          original_contract:contracts!original_contract_id(
+            id,
+            title,
+            client_name,
+            client_email,
+            contract_value,
+            start_date,
+            end_date,
+            auto_renewal,
+            created_by,
+            creator:user_profiles!created_by(name, email)
+          ),
+          requester:user_profiles!requested_by(name, email),
+          processor:user_profiles!processed_by(name, email),
+          new_contract:contracts!new_contract_id(id, title, approval_status)
+        `)
+        .eq('requested_by', userId)
+        .order('created_at', { ascending: false });
+
+      if (requestedError) throw requestedError;
+
+      // Then get renewals for contracts created by this user
+      const { data: ownedContracts, error: ownedError } = await supabase
+        .from('contracts')
+        .select('id')
+        .eq('created_by', userId);
+
+      if (ownedError) throw ownedError;
+
+      const contractIds = ownedContracts.map(c => c.id);
+      
+      let ownedRenewals = [];
+      if (contractIds.length > 0) {
+        const { data: renewalsData, error: renewalsError } = await supabase
+          .from('contract_renewals')
+          .select(`
+            *,
+            original_contract:contracts!original_contract_id(
+              id,
+              title,
+              client_name,
+              client_email,
+              contract_value,
+              start_date,
+              end_date,
+              auto_renewal,
+              created_by,
+              creator:user_profiles!created_by(name, email)
+            ),
+            requester:user_profiles!requested_by(name, email),
+            processor:user_profiles!processed_by(name, email),
+            new_contract:contracts!new_contract_id(id, title, approval_status)
+          `)
+          .in('original_contract_id', contractIds)
+          .order('created_at', { ascending: false });
+
+        if (renewalsError) throw renewalsError;
+        ownedRenewals = renewalsData || [];
+      }
+
+      // Combine and deduplicate results
+      const allRenewals = [...(requestedRenewals || []), ...ownedRenewals];
+      const uniqueRenewals = allRenewals.filter((renewal, index, self) => 
+        index === self.findIndex(r => r.id === renewal.id)
+      );
+
+      let data = uniqueRenewals;
+      if (statusFilter) {
+        data = data.filter(r => r.status === statusFilter);
+      }
+
+      // Calculate additional metrics
+      const totalRenewals = data.length;
+      const pendingRenewals = data.filter(r => r.status === 'pending').length;
+      const approvedRenewals = data.filter(r => r.status === 'approved').length;
+      const autoRenewals = data.filter(r => r.auto_renewal).length;
+
+      return {
+        success: true,
+        renewals: data,
+        metrics: {
+          total_renewals: totalRenewals,
+          pending_renewals: pendingRenewals,
+          approved_renewals: approvedRenewals,
+          auto_renewals: autoRenewals,
+          approval_rate: totalRenewals > 0 ? (approvedRenewals / totalRenewals) * 100 : 0
+        },
+        fetched_at: new Date().toISOString()
+      };
     }
 
+    // For admins and supervisors, use the original single query
     if (statusFilter) {
       query = query.eq('status', statusFilter);
     }
@@ -473,8 +569,8 @@ async function createRenewalContract(supabase: any, renewal: any, processedBy: s
         start_date: renewal.proposed_start_date,
         end_date: renewal.proposed_end_date,
         notes: `Renovación del contrato ${originalContract.id}. ${renewal.gestor_response || ''}`,
-        status: 'draft',
-        approval_status: 'pending_approval',
+        status: 'draft', 
+        approval_status: 'draft',
         created_by: originalContract.created_by,
         parent_contract_id: originalContract.id,
         renewal_type: renewal.auto_renewal ? 'auto_renewal' : 'manual_renewal',
