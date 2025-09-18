@@ -22,6 +22,10 @@ import { supabase } from '../../../lib/supabase';
 import { LoadingSpinner } from '../../common/LoadingSpinner';
 import { VariableModal } from './VariableModal';
 
+interface VariableManagementProps {
+  onCreateVariable?: () => void;
+}
+
 interface TemplateVariable {
   id: string;
   name: string;
@@ -34,7 +38,7 @@ interface TemplateVariable {
   updated_at: string;
 }
 
-export const VariableManagement: React.FC = () => {
+export const VariableManagement: React.FC<VariableManagementProps> = ({ onCreateVariable }) => {
   const [variables, setVariables] = useState<TemplateVariable[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -70,6 +74,7 @@ export const VariableManagement: React.FC = () => {
     setSelectedVariable(null);
     setModalMode('create');
     setIsModalOpen(true);
+    if (onCreateVariable) onCreateVariable();
   };
 
   const handleEditVariable = (variable: TemplateVariable) => {

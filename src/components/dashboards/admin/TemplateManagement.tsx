@@ -19,6 +19,10 @@ import { supabase } from '../../../lib/supabase';
 import { LoadingSpinner } from '../../common/LoadingSpinner';
 import { TemplateModal } from './TemplateModal';
 
+interface TemplateManagementProps {
+  onCreateTemplate?: () => void;
+}
+
 interface ContractTemplate {
   id: string;
   title: string;
@@ -36,7 +40,7 @@ interface ContractTemplate {
   };
 }
 
-export const TemplateManagement: React.FC = () => {
+export const TemplateManagement: React.FC<TemplateManagementProps> = ({ onCreateTemplate }) => {
   const [templates, setTemplates] = useState<ContractTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -86,6 +90,7 @@ export const TemplateManagement: React.FC = () => {
     setSelectedTemplate(null);
     setModalMode('create');
     setIsModalOpen(true);
+    if (onCreateTemplate) onCreateTemplate();
   };
 
   const handleEditTemplate = (template: ContractTemplate) => {

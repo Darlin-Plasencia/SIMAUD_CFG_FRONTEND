@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Users, 
@@ -13,7 +13,12 @@ import {
   Menu,
   X,
   Home,
-  UserCheck
+  UserCheck,
+  TrendingUp,
+  DollarSign,
+  Clock,
+  Target,
+  RefreshCw
 } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { UserManagement } from './UserManagement';
@@ -23,6 +28,7 @@ import { UserProfile } from '../../common/UserProfile';
 import { ContractManagement } from '../../contracts/ContractManagement';
 import { ContractApprovalQueue } from '../../contracts/ContractApprovalQueue';
 import { ReportsCenter } from '../../reports/ReportsCenter';
+import { LoadingSpinner } from '../../common/LoadingSpinner';
 
 type AdminView = 'dashboard' | 'users' | 'templates' | 'variables' | 'contracts' | 'approvals' | 'reports' | 'settings' | 'profile';
 
@@ -30,37 +36,9 @@ export const AdminDashboard: React.FC = () => {
   const { user, logout } = useAuth();
   const [currentView, setCurrentView] = useState<AdminView>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const stats = [
-    {
-      title: 'Usuarios Totales',
-      value: '1,247',
-      change: '+12%',
-      icon: Users,
-      color: 'from-blue-500 to-blue-600'
-    },
-    {
-      title: 'Contratos Activos',
-      value: '348',
-      change: '+8%',
-      icon: FileText,
-      color: 'from-green-500 to-green-600'
-    },
-    {
-      title: 'Ingresos del Mes',
-      value: '$89,400',
-      change: '+23%',
-      icon: BarChart3,
-      color: 'from-purple-500 to-purple-600'
-    },
-    {
-      title: 'Tareas Pendientes',
-      value: '12',
-      change: '-5%',
-      icon: Bell,
-      color: 'from-orange-500 to-orange-600'
-    }
-  ];
+  const [dashboardData, setDashboardData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const navigationItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
@@ -74,16 +52,53 @@ export const AdminDashboard: React.FC = () => {
     { id: 'profile', label: 'Mi Perfil', icon: UserCheck }
   ];
 
+  useEffect(() => {
+    if (currentView === 'dashboard') {
+      loadDashboardData();
+    }
+  }, [currentView]);
+
+  const loadDashboardData = async () => {
+    if (!user) return;
+    
+    setLoading(true);
+    setError('');
+    
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dashboard-stats?role=admin&userId=${user.id}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Error al cargar datos del dashboard');
+      }
+
+      const data = await response.json();
+      setDashboardData(data);
+    } catch (error: any) {
+      console.error('Error loading dashboard data:', error);
+      setError(error.message || 'Error al cargar los datos');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const renderMainContent = () => {
     switch (currentView) {
       case 'users':
-        return <UserManagement />;
+        return <UserManagement onCreateUser={handleCreateUser} />;
       case 'templates':
-        return <TemplateManagement />;
+        return <TemplateManagement onCreateTemplate={handleCreateTemplate} />;
       case 'variables':
-        return <VariableManagement />;
+        return <VariableManagement onCreateVariable={handleCreateVariable} />;
       case 'contracts':
-        return <ContractManagement />;
+        return <ContractManagement onCreateContract={handleCreateContract} />;
       case 'approvals':
         return <ContractApprovalQueue />;
       case 'reports':
@@ -91,7 +106,7 @@ export const AdminDashboard: React.FC = () => {
       case 'profile':
         return <UserProfile />;
       case 'dashboard':
-        return <DashboardHome stats={stats} />;
+        return <DashboardHome data={dashboardData} loading={loading} error={error} onRefresh={loadDashboardData} />;
       default:
         return (
           <div className="flex items-center justify-center h-64">
@@ -107,6 +122,26 @@ export const AdminDashboard: React.FC = () => {
           </div>
         );
     }
+  };
+
+  const handleCreateUser = () => {
+    setCurrentView('users');
+    // La lógica de crear usuario se maneja en UserManagement
+  };
+
+  const handleCreateTemplate = () => {
+    setCurrentView('templates');
+    // La lógica de crear plantilla se maneja en TemplateManagement
+  };
+
+  const handleCreateVariable = () => {
+    setCurrentView('variables');
+    // La lógica de crear variable se maneja en VariableManagement
+  };
+
+  const handleCreateContract = () => {
+    setCurrentView('contracts');
+    // La lógica de crear contrato se maneja en ContractManagement
   };
 
   return (
@@ -255,9 +290,121 @@ export const AdminDashboard: React.FC = () => {
 };
 
 // Dashboard Home Component
-const DashboardHome: React.FC<{ stats: any[] }> = ({ stats }) => {
+const DashboardHome: React.FC<{ 
+  data: any; 
+  loading: boolean; 
+  error: string; 
+  onRefresh: () => void; 
+}> = ({ data, loading, error, onRefresh }) => {
+  const [currentView, setCurrentView] = useState<'overview' | 'charts'>('overview');
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-center">
+          <LoadingSpinner size="large" />
+          <p className="text-gray-600 mt-4">Cargando estadísticas...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-12">
+        <div className="text-red-500 mb-4">
+          <AlertTriangle className="w-12 h-12 mx-auto" />
+        </div>
+        <h3 className="text-lg font-medium text-gray-900 mb-2">Error al cargar datos</h3>
+        <p className="text-gray-500 mb-6">{error}</p>
+        <button
+          onClick={onRefresh}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
+        >
+          Reintentar
+        </button>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-gray-500">No hay datos disponibles</p>
+      </div>
+    );
+  }
+
+  const stats = [
+    {
+      title: 'Usuarios Totales',
+      value: data.stats.total_users.toLocaleString(),
+      change: `+${data.stats.new_users_month}`,
+      icon: Users,
+      color: 'from-blue-500 to-blue-600',
+      description: `${data.stats.new_users_month} nuevos este mes`
+    },
+    {
+      title: 'Contratos Totales',
+      value: data.stats.total_contracts.toLocaleString(),
+      change: `+${data.stats.new_contracts_month}`,
+      icon: FileText,
+      color: 'from-green-500 to-green-600',
+      description: `${data.stats.new_contracts_month} nuevos este mes`
+    },
+    {
+      title: 'Valor Total',
+      value: `$${data.stats.total_value.toLocaleString()}`,
+      change: `${data.quick_stats.approval_rate.toFixed(1)}%`,
+      icon: DollarSign,
+      color: 'from-purple-500 to-purple-600',
+      description: 'Tasa de aprobación'
+    },
+    {
+      title: 'Aprobaciones Pendientes',
+      value: data.stats.pending_approvals.toString(),
+      change: `${data.stats.contracts_this_week}`,
+      icon: Clock,
+      color: 'from-orange-500 to-orange-600',
+      description: 'contratos esta semana'
+    }
+  ];
+
   return (
     <div className="space-y-6">
+      {/* Header with tabs */}
+      <div className="flex items-center justify-between">
+        <div className="flex space-x-4">
+          <button
+            onClick={() => setCurrentView('overview')}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors duration-200 ${
+              currentView === 'overview'
+                ? 'bg-blue-100 text-blue-700'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Resumen
+          </button>
+          <button
+            onClick={() => setCurrentView('charts')}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors duration-200 ${
+              currentView === 'charts'
+                ? 'bg-blue-100 text-blue-700'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Gráficos
+          </button>
+        </div>
+        <button
+          onClick={onRefresh}
+          className="flex items-center space-x-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
+        >
+          <RefreshCw className="w-4 h-4" />
+          <span>Actualizar</span>
+        </button>
+      </div>
+
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {stats.map((stat, index) => {
@@ -277,7 +424,9 @@ const DashboardHome: React.FC<{ stats: any[] }> = ({ stats }) => {
                 <span className={`text-sm font-semibold px-2 py-1 rounded-full ${
                   stat.change.startsWith('+') 
                     ? 'text-green-600 bg-green-100' 
-                    : 'text-red-600 bg-red-100'
+                    : stat.change.includes('%')
+                    ? 'text-blue-600 bg-blue-100'
+                    : 'text-gray-600 bg-gray-100'
                 }`}>
                   {stat.change}
                 </span>
@@ -287,69 +436,273 @@ const DashboardHome: React.FC<{ stats: any[] }> = ({ stats }) => {
                   {stat.value}
                 </h3>
                 <p className="text-gray-600 text-sm">{stat.title}</p>
+                <p className="text-gray-500 text-xs mt-1">{stat.description}</p>
               </div>
             </motion.div>
           );
         })}
       </div>
 
-      {/* Quick Actions */}
+      {currentView === 'overview' ? (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Quick Actions */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Acciones Rápidas</h3>
+            <div className="space-y-3">
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setCurrentView('users')}
+                className="w-full flex items-center space-x-3 p-3 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-all duration-200 text-blue-600"
+              >
+                <Plus className="w-5 h-5" />
+                <span className="font-medium text-gray-900">Gestionar Usuarios</span>
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setCurrentView('contracts')}
+                className="w-full flex items-center space-x-3 p-3 rounded-lg border border-gray-200 hover:border-green-300 hover:bg-green-50 transition-all duration-200 text-green-600"
+              >
+                <FileText className="w-5 h-5" />
+                <span className="font-medium text-gray-900">Gestionar Contratos</span>
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setCurrentView('reports')}
+                className="w-full flex items-center space-x-3 p-3 rounded-lg border border-gray-200 hover:border-purple-300 hover:bg-purple-50 transition-all duration-200 text-purple-600"
+              >
+                <BarChart3 className="w-5 h-5" />
+                <span className="font-medium text-gray-900">Centro de Reportes</span>
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setCurrentView('approvals')}
+                className="w-full flex items-center space-x-3 p-3 rounded-lg border border-gray-200 hover:border-orange-300 hover:bg-orange-50 transition-all duration-200 text-orange-600"
+              >
+                <Bell className="w-5 h-5" />
+                <span className="font-medium text-gray-900">Cola de Aprobaciones</span>
+                {data.stats.pending_approvals > 0 && (
+                  <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+                    {data.stats.pending_approvals}
+                  </span>
+                )}
+              </motion.button>
+            </div>
+          </div>
+
+          {/* Activity and Stats */}
+          <div className="space-y-6">
+            {/* Recent Activity */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Actividad Reciente</h3>
+              <div className="space-y-4">
+                {data.recent_activity?.slice(0, 4).map((activity: any, index: number) => (
+                  <div key={index} className="flex items-start space-x-3">
+                    <div className="p-2 bg-blue-100 rounded-full">
+                      <FileText className="w-4 h-4 text-blue-600" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-900 truncate">{activity.title}</p>
+                      <p className="text-xs text-gray-500">
+                        Cliente: {activity.client_name} • {new Date(activity.created_at).toLocaleDateString('es-ES')}
+                      </p>
+                    </div>
+                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                      activity.approval_status === 'approved' ? 'text-green-600 bg-green-100' :
+                      activity.approval_status === 'pending_approval' ? 'text-orange-600 bg-orange-100' :
+                      'text-gray-600 bg-gray-100'
+                    }`}>
+                      {activity.approval_status.replace('_', ' ')}
+                    </span>
+                  </div>
+                )) || (
+                  <p className="text-gray-500 text-sm">No hay actividad reciente</p>
+                )}
+              </div>
+            </div>
+
+            {/* Top Gestores */}
+            {data.top_gestores && data.top_gestores.length > 0 && (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Gestores</h3>
+                <div className="space-y-3">
+                  {data.top_gestores.map((gestor: any, index: number) => (
+                    <div key={gestor.user_id} className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className={`flex items-center justify-center w-8 h-8 rounded-full ${
+                          index === 0 ? 'bg-yellow-100 text-yellow-600' :
+                          index === 1 ? 'bg-gray-100 text-gray-600' :
+                          index === 2 ? 'bg-orange-100 text-orange-600' :
+                          'bg-blue-100 text-blue-600'
+                        }`}>
+                          <span className="text-xs font-bold">#{index + 1}</span>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">{gestor.user_name}</p>
+                          <p className="text-xs text-gray-500">{gestor.contracts_count} contratos</p>
+                        </div>
+                      </div>
+                      <span className="text-sm font-medium text-gray-600">
+                        ${gestor.total_value.toLocaleString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <AdminChartsView data={data} />
+      )}
+    </div>
+  );
+};
+
+// Admin Charts View Component
+const AdminChartsView: React.FC<{ data: any }> = ({ data }) => {
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'USD' }).format(value);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Charts Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Contracts by Month */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Acciones Rápidas</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Contratos por Mes</h3>
           <div className="space-y-3">
-            {[
-              { icon: Plus, label: 'Crear Usuario', color: 'text-blue-600' },
-              { icon: FileText, label: 'Nuevo Contrato', color: 'text-green-600' },
-              { icon: BarChart3, label: 'Generar Reporte', color: 'text-purple-600' },
-              { icon: Settings, label: 'Configuración', color: 'text-gray-600' }
-            ].map((action, index) => {
-              const Icon = action.icon;
-              return (
-                <motion.button
-                  key={index}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className={`w-full flex items-center space-x-3 p-3 rounded-lg border border-gray-200 hover:border-gray-300 transition-all duration-200 ${action.color}`}
-                >
-                  <Icon className="w-5 h-5" />
-                  <span className="font-medium text-gray-900">{action.label}</span>
-                </motion.button>
-              );
-            })}
+            {Object.entries(data.charts.contracts_by_month).map(([month, count]: [string, any]) => (
+              <div key={month} className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">{month}</span>
+                <div className="flex items-center space-x-2">
+                  <div className="w-24 bg-gray-200 rounded-full h-2">
+                    <div 
+                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                      style={{ 
+                        width: `${(count / Math.max(...Object.values(data.charts.contracts_by_month))) * 100}%` 
+                      }}
+                    />
+                  </div>
+                  <span className="text-sm font-medium text-gray-900 w-8 text-right">{count}</span>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
+        {/* Status Distribution */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Actividad Reciente</h3>
-          <div className="space-y-4">
-            <div className="flex items-start space-x-3">
-              <div className="p-2 bg-blue-100 rounded-full">
-                <Users className="w-4 h-4 text-blue-600" />
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Distribución por Estado</h3>
+          <div className="space-y-3">
+            {Object.entries(data.charts.status_distribution).map(([status, count]: [string, any]) => (
+              <div key={status} className="flex items-center justify-between">
+                <span className="text-sm text-gray-600 capitalize">{status.replace('_', ' ')}</span>
+                <div className="flex items-center space-x-2">
+                  <div className="w-20 bg-gray-200 rounded-full h-2">
+                    <div 
+                      className="bg-green-600 h-2 rounded-full transition-all duration-300"
+                      style={{ 
+                        width: `${(count / data.stats.total_contracts) * 100}%` 
+                      }}
+                    />
+                  </div>
+                  <span className="text-sm font-medium text-gray-900 w-8 text-right">{count}</span>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-medium text-gray-900">Nuevo usuario registrado</p>
-                <p className="text-xs text-gray-500">Hace 2 minutos</p>
+            ))}
+          </div>
+        </div>
+
+        {/* Role Distribution */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Usuarios por Rol</h3>
+          <div className="space-y-3">
+            {Object.entries(data.charts.role_distribution).map(([role, count]: [string, any]) => (
+              <div key={role} className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <div className={`w-3 h-3 rounded-full ${
+                    role === 'admin' ? 'bg-purple-500' :
+                    role === 'supervisor' ? 'bg-green-500' :
+                    role === 'gestor' ? 'bg-blue-500' : 'bg-gray-500'
+                  }`}></div>
+                  <span className="text-sm text-gray-600 capitalize">
+                    {role === 'admin' ? 'Administradores' :
+                     role === 'supervisor' ? 'Supervisores' :
+                     role === 'gestor' ? 'Gestores' : 'Usuarios'}
+                  </span>
+                </div>
+                <span className="text-sm font-medium text-gray-900">{count}</span>
               </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Value Trend */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Tendencia de Valor</h3>
+          <div className="space-y-3">
+            {Object.entries(data.charts.value_trend).slice(-6).map(([month, value]: [string, any]) => (
+              <div key={month} className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">{month}</span>
+                <div className="flex items-center space-x-2">
+                  <div className="w-20 bg-gray-200 rounded-full h-2">
+                    <div 
+                      className="bg-purple-600 h-2 rounded-full transition-all duration-300"
+                      style={{ 
+                        width: `${(value / Math.max(...Object.values(data.charts.value_trend))) * 100}%` 
+                      }}
+                    />
+                  </div>
+                  <span className="text-xs font-medium text-gray-900">
+                    ${(value / 1000).toFixed(0)}K
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* System Metrics */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-6">Métricas del Sistema</h3>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="text-center">
+            <div className="flex items-center justify-center w-12 h-12 bg-blue-100 rounded-full mx-auto mb-3">
+              <Target className="w-6 h-6 text-blue-600" />
             </div>
-            <div className="flex items-start space-x-3">
-              <div className="p-2 bg-green-100 rounded-full">
-                <FileText className="w-4 h-4 text-green-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-900">Contrato aprobado</p>
-                <p className="text-xs text-gray-500">Hace 15 minutos</p>
-              </div>
+            <p className="text-2xl font-bold text-blue-600">{data.quick_stats.approval_rate.toFixed(1)}%</p>
+            <p className="text-sm text-gray-600">Tasa de Aprobación</p>
+          </div>
+          <div className="text-center">
+            <div className="flex items-center justify-center w-12 h-12 bg-green-100 rounded-full mx-auto mb-3">
+              <DollarSign className="w-6 h-6 text-green-600" />
             </div>
-            <div className="flex items-start space-x-3">
-              <div className="p-2 bg-purple-100 rounded-full">
-                <BarChart3 className="w-4 h-4 text-purple-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-900">Reporte generado</p>
-                <p className="text-xs text-gray-500">Hace 1 hora</p>
-              </div>
+            <p className="text-2xl font-bold text-green-600">
+              ${(data.quick_stats.average_contract_value / 1000).toFixed(0)}K
+            </p>
+            <p className="text-sm text-gray-600">Valor Promedio</p>
+          </div>
+          <div className="text-center">
+            <div className="flex items-center justify-center w-12 h-12 bg-purple-100 rounded-full mx-auto mb-3">
+              <Clock className="w-6 h-6 text-purple-600" />
             </div>
+            <p className="text-2xl font-bold text-purple-600">
+              {data.quick_stats.avg_approval_time.toFixed(1)}d
+            </p>
+            <p className="text-sm text-gray-600">Tiempo Aprobación</p>
+          </div>
+          <div className="text-center">
+            <div className="flex items-center justify-center w-12 h-12 bg-orange-100 rounded-full mx-auto mb-3">
+              <TrendingUp className="w-6 h-6 text-orange-600" />
+            </div>
+            <p className="text-2xl font-bold text-orange-600">{data.quick_stats.system_efficiency.toFixed(1)}%</p>
+            <p className="text-sm text-gray-600">Eficiencia Sistema</p>
           </div>
         </div>
       </div>

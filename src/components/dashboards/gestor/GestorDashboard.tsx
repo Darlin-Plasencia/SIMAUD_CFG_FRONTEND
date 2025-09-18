@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   FileText, 
@@ -6,7 +6,6 @@ import {
   Clock, 
   CheckCircle, 
   XCircle,
-  AlertTriangle,
   Bell,
   LogOut,
   Menu,
@@ -16,11 +15,17 @@ import {
   Search,
   Send,
   Eye,
-  BarChart3
+  BarChart3,
+  DollarSign,
+  TrendingUp,
+  RefreshCw,
+  AlertTriangle,
+  Target
 } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { UserProfile } from '../../common/UserProfile';
 import { ContractManagement } from '../../contracts/ContractManagement';
+import { LoadingSpinner } from '../../common/LoadingSpinner';
 
 type GestorView = 'dashboard' | 'contracts' | 'profile';
 
@@ -28,37 +33,9 @@ export const GestorDashboard: React.FC = () => {
   const { user, logout } = useAuth();
   const [currentView, setCurrentView] = useState<GestorView>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const stats = [
-    {
-      title: 'Mis Contratos',
-      value: '18',
-      change: '+3',
-      icon: FileText,
-      color: 'from-blue-500 to-blue-600'
-    },
-    {
-      title: 'En Borrador',
-      value: '5',
-      change: '+2',
-      icon: PlusCircle,
-      color: 'from-gray-500 to-gray-600'
-    },
-    {
-      title: 'En Aprobación',
-      value: '3',
-      change: '+1',
-      icon: Clock,
-      color: 'from-orange-500 to-orange-600'
-    },
-    {
-      title: 'Aprobados',
-      value: '10',
-      change: '+2',
-      icon: CheckCircle,
-      color: 'from-green-500 to-green-600'
-    }
-  ];
+  const [dashboardData, setDashboardData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const navigationItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
@@ -66,17 +43,58 @@ export const GestorDashboard: React.FC = () => {
     { id: 'profile', label: 'Mi Perfil', icon: UserCheck }
   ];
 
+  useEffect(() => {
+    if (currentView === 'dashboard') {
+      loadDashboardData();
+    }
+  }, [currentView, user]);
+
+  const loadDashboardData = async () => {
+    if (!user) return;
+    
+    setLoading(true);
+    setError('');
+    
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dashboard-stats?role=gestor&userId=${user.id}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Error al cargar datos del dashboard');
+      }
+
+      const data = await response.json();
+      setDashboardData(data);
+    } catch (error: any) {
+      console.error('Error loading dashboard data:', error);
+      setError(error.message || 'Error al cargar los datos');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const renderMainContent = () => {
     switch (currentView) {
       case 'contracts':
-        return <ContractManagement />;
+        return <ContractManagement onCreateContract={handleCreateContract} />;
       case 'profile':
         return <UserProfile />;
       case 'dashboard':
-        return <DashboardHome stats={stats} />;
+        return <GestorDashboardHome data={dashboardData} loading={loading} error={error} onRefresh={loadDashboardData} onCreateContract={handleCreateContract} />;
       default:
-        return <DashboardHome stats={stats} />;
+        return <GestorDashboardHome data={dashboardData} loading={loading} error={error} onRefresh={loadDashboardData} onCreateContract={handleCreateContract} />;
     }
+  };
+
+  const handleCreateContract = () => {
+    setCurrentView('contracts');
   };
 
   return (
@@ -219,8 +237,86 @@ export const GestorDashboard: React.FC = () => {
 };
 
 // Dashboard Home Component
-const DashboardHome: React.FC<{ stats: any[] }> = ({ stats }) => {
+const GestorDashboardHome: React.FC<{ 
+  data: any; 
+  loading: boolean; 
+  error: string; 
+  onRefresh: () => void;
+  onCreateContract: () => void;
+}> = ({ data, loading, error, onRefresh, onCreateContract }) => {
   const { user } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-center">
+          <LoadingSpinner size="large" />
+          <p className="text-gray-600 mt-4">Cargando estadísticas...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-12">
+        <div className="text-red-500 mb-4">
+          <AlertTriangle className="w-12 h-12 mx-auto" />
+        </div>
+        <h3 className="text-lg font-medium text-gray-900 mb-2">Error al cargar datos</h3>
+        <p className="text-gray-500 mb-6">{error}</p>
+        <button
+          onClick={onRefresh}
+          className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors duration-200"
+        >
+          Reintentar
+        </button>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-gray-500">No hay datos disponibles</p>
+      </div>
+    );
+  }
+
+  const stats = [
+    {
+      title: 'Mis Contratos',
+      value: data.stats.total_contracts.toString(),
+      change: `+${data.stats.new_contracts_month}`,
+      icon: FileText,
+      color: 'from-blue-500 to-blue-600',
+      description: 'nuevos este mes'
+    },
+    {
+      title: 'En Borrador',
+      value: data.stats.draft_contracts.toString(),
+      change: `${data.stats.contracts_this_week}`,
+      icon: PlusCircle,
+      color: 'from-gray-500 to-gray-600',
+      description: 'creados esta semana'
+    },
+    {
+      title: 'En Aprobación',
+      value: data.stats.pending_approval.toString(),
+      change: `${data.stats.approval_rate.toFixed(1)}%`,
+      icon: Clock,
+      color: 'from-orange-500 to-orange-600',
+      description: 'tasa aprobación'
+    },
+    {
+      title: 'Aprobados',
+      value: data.stats.approved_contracts.toString(),
+      change: `$${(data.stats.total_value / 1000).toFixed(0)}K`,
+      icon: CheckCircle,
+      color: 'from-green-500 to-green-600',
+      description: 'valor total'
+    }
+  ];
 
   return (
     <div className="space-y-6">
@@ -230,14 +326,22 @@ const DashboardHome: React.FC<{ stats: any[] }> = ({ stats }) => {
         animate={{ opacity: 1, y: 0 }}
         className="bg-gradient-to-r from-purple-500 to-purple-600 rounded-xl shadow-sm p-6 text-white"
       >
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center justify-center w-12 h-12 bg-white bg-opacity-20 rounded-full">
-            <FileText className="w-6 h-6 text-white" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center justify-center w-12 h-12 bg-white bg-opacity-20 rounded-full">
+              <FileText className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold">¡Hola, {user?.name}!</h2>
+              <p className="text-purple-100">Gestiona tus contratos de manera eficiente</p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-2xl font-bold">¡Hola, {user?.name}!</h2>
-            <p className="text-purple-100">Gestiona tus contratos de manera eficiente</p>
-          </div>
+          <button
+            onClick={onRefresh}
+            className="p-2 bg-white bg-opacity-20 rounded-lg hover:bg-opacity-30 transition-all duration-200"
+          >
+            <RefreshCw className="w-5 h-5 text-white" />
+          </button>
         </div>
       </motion.div>
 
@@ -258,9 +362,11 @@ const DashboardHome: React.FC<{ stats: any[] }> = ({ stats }) => {
                   <Icon className="w-6 h-6 text-white" />
                 </div>
                 <span className={`text-sm font-semibold px-2 py-1 rounded-full ${
-                  stat.change.startsWith('+') 
+                  stat.change.includes('%') || stat.change.includes('K')
+                    ? 'text-blue-600 bg-blue-100'
+                    : stat.change.startsWith('+') || parseInt(stat.change) > 0
                     ? 'text-green-600 bg-green-100' 
-                    : 'text-red-600 bg-red-100'
+                    : 'text-gray-600 bg-gray-100'
                 }`}>
                   {stat.change}
                 </span>
@@ -270,123 +376,187 @@ const DashboardHome: React.FC<{ stats: any[] }> = ({ stats }) => {
                   {stat.value}
                 </h3>
                 <p className="text-gray-600 text-sm">{stat.title}</p>
+                <p className="text-gray-500 text-xs mt-1">{stat.description}</p>
               </div>
             </motion.div>
           );
         })}
       </div>
 
-      {/* Quick Actions and Recent Activity */}
+      {/* Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Quick Actions */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Acciones Rápidas</h3>
           <div className="space-y-3">
-            {[
-              { icon: PlusCircle, label: 'Crear Nuevo Contrato', color: 'text-purple-600', bg: 'hover:bg-purple-50' },
-              { icon: Send, label: 'Enviar a Aprobación', color: 'text-blue-600', bg: 'hover:bg-blue-50' },
-              { icon: Eye, label: 'Ver Contratos Pendientes', color: 'text-orange-600', bg: 'hover:bg-orange-50' },
-              { icon: BarChart3, label: 'Ver Reportes', color: 'text-green-600', bg: 'hover:bg-green-50' }
-            ].map((action, index) => {
-              const Icon = action.icon;
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={onCreateContract}
+              className="w-full flex items-center space-x-3 p-3 rounded-lg border border-gray-200 hover:border-purple-300 hover:bg-purple-50 transition-all duration-200 text-purple-600"
+            >
+              <PlusCircle className="w-5 h-5" />
+              <span className="font-medium text-gray-900">Crear Nuevo Contrato</span>
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setCurrentView('contracts')}
+              className="w-full flex items-center space-x-3 p-3 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-all duration-200 text-blue-600"
+            >
+              <Eye className="w-5 h-5" />
+              <span className="font-medium text-gray-900">Ver Mis Contratos</span>
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              className="w-full flex items-center space-x-3 p-3 rounded-lg border border-gray-200 hover:border-green-300 hover:bg-green-50 transition-all duration-200 text-green-600"
+            >
+              <BarChart3 className="w-5 h-5" />
+              <span className="font-medium text-gray-900">Ver Reportes</span>
+            </motion.button>
+          </div>
+        </div>
+
+        {/* Contract Status Breakdown */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Estado de Mis Contratos</h3>
+          <div className="space-y-4">
+            {Object.entries(data.charts.status_distribution).map(([status, count]: [string, any]) => {
+              const getStatusIcon = (status: string) => {
+                switch (status) {
+                  case 'draft': return PlusCircle;
+                  case 'pending_approval': return Clock;
+                  case 'approved': return CheckCircle;
+                  case 'rejected': return XCircle;
+                  case 'signed': return Users;
+                  case 'completed': return CheckCircle;
+                  default: return FileText;
+                }
+              };
+              
+              const getStatusColor = (status: string) => {
+                switch (status) {
+                  case 'draft': return 'text-gray-600 bg-gray-100';
+                  case 'pending_approval': return 'text-orange-600 bg-orange-100';
+                  case 'approved': return 'text-green-600 bg-green-100';
+                  case 'rejected': return 'text-red-600 bg-red-100';
+                  case 'signed': return 'text-blue-600 bg-blue-100';
+                  case 'completed': return 'text-purple-600 bg-purple-100';
+                  default: return 'text-gray-600 bg-gray-100';
+                }
+              };
+              
+              const StatusIcon = getStatusIcon(status);
+              
               return (
-                <motion.button
-                  key={index}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className={`w-full flex items-center space-x-3 p-3 rounded-lg border border-gray-200 hover:border-gray-300 transition-all duration-200 ${action.color} ${action.bg}`}
-                >
-                  <Icon className="w-5 h-5" />
-                  <span className="font-medium text-gray-900">{action.label}</span>
-                </motion.button>
+                <div key={status} className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="p-2 bg-gray-100 rounded-full">
+                      <StatusIcon className="w-4 h-4 text-gray-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-900 capitalize">
+                        {status.replace('_', ' ')}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {((count / data.stats.total_contracts) * 100).toFixed(1)}% del total
+                      </p>
+                    </div>
+                  </div>
+                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(status)}`}>
+                    {count}
+                  </span>
+                </div>
               );
             })}
           </div>
         </div>
+      </div>
 
-        {/* Contract Status Overview */}
+      {/* Charts Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Contracts by Month */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Estado de Contratos</h3>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-gray-100 rounded-full">
-                  <PlusCircle className="w-4 h-4 text-gray-600" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-900">Borradores</p>
-                  <p className="text-xs text-gray-500">Listos para revisar</p>
-                </div>
-              </div>
-              <span className="text-lg font-bold text-gray-900">5</span>
-            </div>
-            
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-orange-100 rounded-full">
-                  <Clock className="w-4 h-4 text-orange-600" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-900">En Aprobación</p>
-                  <p className="text-xs text-gray-500">Esperando supervisor</p>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Contratos por Mes</h3>
+          <div className="space-y-3">
+            {Object.entries(data.charts.contracts_by_month).map(([month, count]: [string, any]) => (
+              <div key={month} className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">{month}</span>
+                <div className="flex items-center space-x-2">
+                  <div className="w-20 bg-gray-200 rounded-full h-2">
+                    <div 
+                      className="bg-purple-600 h-2 rounded-full transition-all duration-300"
+                      style={{ 
+                        width: `${(count / Math.max(...Object.values(data.charts.contracts_by_month))) * 100}%` 
+                      }}
+                    />
+                  </div>
+                  <span className="text-sm font-medium text-gray-900 w-8 text-right">{count}</span>
                 </div>
               </div>
-              <span className="text-lg font-bold text-orange-600">3</span>
-            </div>
-            
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-green-100 rounded-full">
-                  <CheckCircle className="w-4 h-4 text-green-600" />
+            ))}
+          </div>
+        </div>
+
+        {/* Recent Contracts */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Contratos Recientes</h3>
+          <div className="space-y-3">
+            {data.recent_contracts?.slice(0, 5).map((contract: any, index: number) => (
+              <div key={contract.id} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
+                <div className="p-2 bg-purple-100 rounded-lg">
+                  <FileText className="w-4 h-4 text-purple-600" />
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-900">Aprobados</p>
-                  <p className="text-xs text-gray-500">Listos para firmar</p>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-gray-900 truncate">{contract.title}</p>
+                  <p className="text-xs text-gray-500">
+                    {contract.client_name} • {new Date(contract.created_at).toLocaleDateString('es-ES')}
+                  </p>
                 </div>
+                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                  contract.approval_status === 'approved' ? 'text-green-600 bg-green-100' :
+                  contract.approval_status === 'pending_approval' ? 'text-orange-600 bg-orange-100' :
+                  contract.approval_status === 'rejected' ? 'text-red-600 bg-red-100' :
+                  'text-gray-600 bg-gray-100'
+                }`}>
+                  {contract.approval_status.replace('_', ' ')}
+                </span>
               </div>
-              <span className="text-lg font-bold text-green-600">10</span>
-            </div>
-            
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-red-100 rounded-full">
-                  <XCircle className="w-4 h-4 text-red-600" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-900">Rechazados</p>
-                  <p className="text-xs text-gray-500">Requieren cambios</p>
-                </div>
-              </div>
-              <span className="text-lg font-bold text-red-600">2</span>
-            </div>
+            )) || (
+              <p className="text-gray-500 text-sm">No tienes contratos recientes</p>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Recent Contracts */}
+      {/* Performance Metrics */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">Contratos Recientes</h3>
-          <button className="text-sm text-purple-600 hover:text-purple-700 font-medium">
-            Ver todos
-          </button>
-        </div>
-        <div className="space-y-3">
-          {[
-            { title: 'Contrato de Servicios - TechCorp', status: 'En Aprobación', date: '2 horas', statusColor: 'text-orange-600 bg-orange-100' },
-            { title: 'Consultoría Digital - StartupXYZ', status: 'Aprobado', date: '1 día', statusColor: 'text-green-600 bg-green-100' },
-            { title: 'Desarrollo Web - InnovaLab', status: 'Borrador', date: '2 días', statusColor: 'text-gray-600 bg-gray-100' }
-          ].map((contract, index) => (
-            <div key={index} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors duration-200">
-              <div className="flex-1">
-                <h4 className="text-sm font-medium text-gray-900">{contract.title}</h4>
-                <p className="text-xs text-gray-500">Hace {contract.date}</p>
-              </div>
-              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${contract.statusColor}`}>
-                {contract.status}
-              </span>
+        <h3 className="text-lg font-semibold text-gray-900 mb-6">Mis Métricas de Rendimiento</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="text-center">
+            <div className="flex items-center justify-center w-12 h-12 bg-green-100 rounded-full mx-auto mb-3">
+              <Target className="w-6 h-6 text-green-600" />
             </div>
-          ))}
+            <p className="text-2xl font-bold text-green-600">{data.stats.approval_rate.toFixed(1)}%</p>
+            <p className="text-sm text-gray-600">Tasa de Aprobación</p>
+          </div>
+          <div className="text-center">
+            <div className="flex items-center justify-center w-12 h-12 bg-blue-100 rounded-full mx-auto mb-3">
+              <DollarSign className="w-6 h-6 text-blue-600" />
+            </div>
+            <p className="text-2xl font-bold text-blue-600">
+              ${(data.stats.avg_contract_value / 1000).toFixed(0)}K
+            </p>
+            <p className="text-sm text-gray-600">Valor Promedio</p>
+          </div>
+          <div className="text-center">
+            <div className="flex items-center justify-center w-12 h-12 bg-purple-100 rounded-full mx-auto mb-3">
+              <TrendingUp className="w-6 h-6 text-purple-600" />
+            </div>
+            <p className="text-2xl font-bold text-purple-600">{data.stats.total_value.toLocaleString()}</p>
+            <p className="text-sm text-gray-600">Valor Total Generado</p>
+          </div>
         </div>
       </div>
     </div>

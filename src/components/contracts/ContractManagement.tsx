@@ -24,7 +24,11 @@ import { ContractViewModal } from './ContractViewModal';
 import { ContractModal } from './ContractModal';
 import type { Contract } from '../../types/contracts';
 
-export const ContractManagement: React.FC = () => {
+interface ContractManagementProps {
+  onCreateContract?: () => void;
+}
+
+export const ContractManagement: React.FC<ContractManagementProps> = ({ onCreateContract }) => {
   const { user } = useAuth();
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [loading, setLoading] = useState(true);
@@ -134,6 +138,7 @@ export const ContractManagement: React.FC = () => {
   const handleCreateContract = () => {
     setEditingContract(null);
     setShowContractModal(true);
+    if (onCreateContract) onCreateContract();
   };
 
   const handleEditContract = (contract: Contract) => {

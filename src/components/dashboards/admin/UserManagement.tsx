@@ -20,6 +20,10 @@ import { supabase } from '../../../lib/supabase';
 import { LoadingSpinner } from '../../common/LoadingSpinner';
 import { UserModal } from './UserModal';
 
+interface UserManagementProps {
+  onCreateUser?: () => void;
+}
+
 interface UserProfile {
   id: string;
   email: string;
@@ -31,7 +35,7 @@ interface UserProfile {
   updated_at: string;
 }
 
-export const UserManagement: React.FC = () => {
+export const UserManagement: React.FC<UserManagementProps> = ({ onCreateUser }) => {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -66,6 +70,7 @@ export const UserManagement: React.FC = () => {
     setSelectedUser(null);
     setModalMode('create');
     setIsModalOpen(true);
+    if (onCreateUser) onCreateUser();
   };
 
   const handleEditUser = (user: UserProfile) => {
