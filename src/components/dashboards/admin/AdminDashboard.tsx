@@ -22,6 +22,7 @@ import { VariableManagement } from './VariableManagement';
 import { UserProfile } from '../../common/UserProfile';
 import { ContractManagement } from '../../contracts/ContractManagement';
 import { ContractApprovalQueue } from '../../contracts/ContractApprovalQueue';
+import { ReportsCenter } from '../../reports/ReportsCenter';
 
 type AdminView = 'dashboard' | 'users' | 'templates' | 'variables' | 'contracts' | 'approvals' | 'reports' | 'settings' | 'profile';
 
@@ -68,7 +69,7 @@ export const AdminDashboard: React.FC = () => {
     { id: 'variables', label: 'Variables Sistema', icon: Settings },
     { id: 'contracts', label: 'Contratos', icon: FileText },
     { id: 'approvals', label: 'Aprobaciones', icon: Bell },
-    { id: 'reports', label: 'Reportes', icon: BarChart3 },
+    { id: 'reports', label: 'Centro de Reportes', icon: BarChart3 },
     { id: 'settings', label: 'Configuración', icon: Settings },
     { id: 'profile', label: 'Mi Perfil', icon: UserCheck }
   ];
@@ -85,6 +86,8 @@ export const AdminDashboard: React.FC = () => {
         return <ContractManagement />;
       case 'approvals':
         return <ContractApprovalQueue />;
+      case 'reports':
+        return <ReportsCenter />;
       case 'profile':
         return <UserProfile />;
       case 'dashboard':
@@ -208,8 +211,7 @@ export const AdminDashboard: React.FC = () => {
                   {currentView === 'variables' && 'Administra variables del sistema'}
                   {currentView === 'contracts' && 'Gestiona contratos y documentos'}
                   {currentView === 'approvals' && 'Revisa y aprueba contratos pendientes'}
-                  {currentView === 'contracts' && 'Gestiona contratos y documentos'}
-                  {currentView === 'reports' && 'Analiza métricas y estadísticas'}
+                  {currentView === 'reports' && 'Centro completo de reportes y analytics'}
                   {currentView === 'settings' && 'Configuración del sistema'}
                   {currentView === 'profile' && 'Gestiona tu información personal'}
                 </p>
