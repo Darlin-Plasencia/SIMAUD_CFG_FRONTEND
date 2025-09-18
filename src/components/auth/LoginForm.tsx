@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Eye, EyeOff, LogIn, Mail, Lock } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { LoadingSpinner } from '../common/LoadingSpinner';
+import { ForgotPasswordForm } from './ForgotPasswordForm';
 
 interface LoginFormProps {
   onSwitchToRegister: () => void;
@@ -11,6 +12,7 @@ interface LoginFormProps {
 
 export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister, onBackToLanding }) => {
   const { login, isLoading } = useAuth();
+  const [currentView, setCurrentView] = useState<'login' | 'forgot'>('login');
   const [formData, setFormData] = useState({
     email: '',
     password: ''
@@ -68,6 +70,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister, onBack
       handleSubmit(e as any);
     }
   };
+
+  if (currentView === 'forgot') {
+    return <ForgotPasswordForm onBack={() => setCurrentView('login')} />;
+  }
 
   return (
     <div className="space-y-6">
@@ -199,6 +205,15 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister, onBack
             disabled={isLoading}
           >
             Regístrate aquí
+          </button>
+        </p>
+        <p className="text-gray-500 text-sm mt-2">
+          <button
+            onClick={() => setCurrentView('forgot')}
+            className="text-gray-500 hover:text-gray-700 transition-colors duration-200 hover:underline"
+            disabled={isLoading}
+          >
+            ¿Olvidaste tu contraseña?
           </button>
         </p>
         {onBackToLanding && (

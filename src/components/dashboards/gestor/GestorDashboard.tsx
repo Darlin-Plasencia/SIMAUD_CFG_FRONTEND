@@ -21,7 +21,8 @@ import {
   RefreshCw,
   AlertTriangle,
   Target,
-  Users
+  Users,
+  Settings
 } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -29,11 +30,12 @@ import { UserProfile } from '../../common/UserProfile';
 import { ContractManagement } from '../../contracts/ContractManagement';
 import { RenewalCenter } from '../../renewals/RenewalCenter';
 import { AnalyticsReports } from '../../reports/AnalyticsReports';
+import { VariableManagement } from '../admin/VariableManagement';
 import { NotificationCenter } from '../../notifications/NotificationCenter';
 import { ExpiryAlerts } from '../../notifications/ExpiryAlerts';
 import { LoadingSpinner } from '../../common/LoadingSpinner';
 
-type GestorView = 'dashboard' | 'contracts' | 'renewals' | 'analytics' | 'profile';
+type GestorView = 'dashboard' | 'contracts' | 'variables' | 'renewals' | 'analytics' | 'profile';
 
 export const GestorDashboard: React.FC = () => {
   const { user, logout } = useAuth();
@@ -46,6 +48,7 @@ export const GestorDashboard: React.FC = () => {
   const navigationItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
     { id: 'contracts', label: 'Mis Contratos', icon: FileText },
+    { id: 'variables', label: 'Variables Sistema', icon: Settings },
     { id: 'renewals', label: 'Renovaciones', icon: RefreshCw },
     { id: 'analytics', label: 'Mis Métricas', icon: BarChart3 },
     { id: 'profile', label: 'Mi Perfil', icon: UserCheck }
@@ -104,6 +107,8 @@ export const GestorDashboard: React.FC = () => {
     switch (currentView) {
       case 'contracts':
         return <ContractManagement onCreateContract={handleCreateContract} />;
+      case 'variables':
+        return <VariableManagement onCreateVariable={handleCreateVariable} />;
       case 'renewals':
         return <RenewalCenter />;
       case 'analytics':
@@ -111,14 +116,18 @@ export const GestorDashboard: React.FC = () => {
       case 'profile':
         return <UserProfile />;
       case 'dashboard':
-        return <GestorDashboardHome data={dashboardData} loading={loading} error={error} onRefresh={loadDashboardData} onCreateContract={handleCreateContract} />;
+        return <GestorDashboardHome data={dashboardData} loading={loading} error={error} onRefresh={loadDashboardData} onCreateContract={handleCreateContract} onCreateVariable={handleCreateVariable} />;
       default:
-        return <GestorDashboardHome data={dashboardData} loading={loading} error={error} onRefresh={loadDashboardData} onCreateContract={handleCreateContract} />;
+        return <GestorDashboardHome data={dashboardData} loading={loading} error={error} onRefresh={loadDashboardData} onCreateContract={handleCreateContract} onCreateVariable={handleCreateVariable} />;
     }
   };
 
   const handleCreateContract = () => {
     setCurrentView('contracts');
+  };
+
+  const handleCreateVariable = () => {
+    setCurrentView('variables');
   };
 
   return (
@@ -219,6 +228,7 @@ export const GestorDashboard: React.FC = () => {
                 <p className="text-sm text-gray-500">
                   {currentView === 'dashboard' && 'Panel de control del gestor de contratos'}
                   {currentView === 'contracts' && 'Gestiona tus contratos y documentos'}
+                  {currentView === 'variables' && 'Administra variables del sistema'}
                  {currentView === 'renewals' && 'Gestiona solicitudes de renovación'}
                   {currentView === 'analytics' && 'Métricas y análisis de tus contratos'}
                   {currentView === 'profile' && 'Gestiona tu información personal'}
@@ -272,7 +282,8 @@ const GestorDashboardHome: React.FC<{
   error: string; 
   onRefresh: () => void;
   onCreateContract: () => void;
-}> = ({ data, loading, error, onRefresh, onCreateContract }) => {
+  onCreateVariable: () => void;
+}> = ({ data, loading, error, onRefresh, onCreateContract, onCreateVariable }) => {
   const { user } = useAuth();
 
   if (loading) {
@@ -426,6 +437,15 @@ const GestorDashboardHome: React.FC<{
             >
               <PlusCircle className="w-5 h-5" />
               <span className="font-medium text-gray-900">Crear Nuevo Contrato</span>
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={onCreateVariable}
+              className="w-full flex items-center space-x-3 p-3 rounded-lg border border-gray-200 hover:border-green-300 hover:bg-green-50 transition-all duration-200 text-green-600"
+            >
+              <Settings className="w-5 h-5" />
+              <span className="font-medium text-gray-900">Nueva Variable</span>
             </motion.button>
             <motion.button
               whileHover={{ scale: 1.02 }}
