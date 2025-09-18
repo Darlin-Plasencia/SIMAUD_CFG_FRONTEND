@@ -33,6 +33,7 @@ interface ContractModalProps {
   contract: Contract | null;
   isEditMode: boolean;
   onSuccess: () => void;
+  auto_renewal: boolean;
 }
 
 export const ContractModal: React.FC<ContractModalProps> = ({
@@ -62,7 +63,8 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     end_date: null,
     notes: '',
     variables_data: {},
-    signatories: []
+    signatories: [],
+    auto_renewal: false
   });
 
   useEffect(() => {
@@ -168,7 +170,8 @@ export const ContractModal: React.FC<ContractModalProps> = ({
         end_date: contract.end_date || null,
         notes: contract.notes || '',
         variables_data: contract.variables_data || {},
-        signatories: formattedSignatories
+        signatories: formattedSignatories,
+        auto_renewal: contract.auto_renewal || false
       });
       
       console.log('✅ Form data set successfully');
@@ -324,7 +327,10 @@ export const ContractModal: React.FC<ContractModalProps> = ({
         status: 'draft',
         approval_status: 'draft',
         created_by: user.id,
-        generated_content: previewContent
+        generated_content: previewContent,
+        auto_renewal: formData.auto_renewal,
+        renewal_type: 'original',
+        actual_status: 'draft'
       })
       .select()
       .single();
@@ -409,6 +415,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
         end_date: formData.end_date,
         notes: formData.notes,
         generated_content: previewContent,
+        auto_renewal: formData.auto_renewal,
         updated_at: new Date().toISOString(),
         ...(wasRejected && {
           approval_status: 'pending_approval',
@@ -887,6 +894,29 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                 </div>
 
                 {/* Error Message */}
+
+                {/* Auto-renewal option */}
+                <div className="col-span-2">
+                  <div className="flex items-center space-x-3 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                    <input
+                      type="checkbox"
+                      id="auto_renewal"
+                      checked={formData.auto_renewal || false}
+                      onChange={(e) => handleInputChange('auto_renewal', e.target.checked)}
+                      className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                      disabled={loading}
+                    />
+                    <div className="flex-1">
+                      <label htmlFor="auto_renewal" className="text-sm font-medium text-purple-900 cursor-pointer">
+                        Activar renovación automática
+                      </label>
+                      <p className="text-xs text-purple-700 mt-1">
+                        El contrato se renovará automáticamente cuando expire, manteniendo los mismos términos
+                      </p>
+                    </div>
+                    <RefreshCw className="w-5 h-5 text-purple-600" />
+                  </div>
+                </div>
                 {error && (
                   <motion.div
                     initial={{ opacity: 0, y: -10 }}

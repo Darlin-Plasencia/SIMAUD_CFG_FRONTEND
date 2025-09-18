@@ -21,6 +21,10 @@ export interface Contract {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  auto_renewal: boolean;
+  parent_contract_id: string | null;
+  renewal_type: 'original' | 'manual_renewal' | 'auto_renewal' | null;
+  actual_status: string | null;
 }
 
 export interface ContractSignatory {
@@ -113,4 +117,55 @@ export interface ContractFormData {
   notes: string;
   variables_data: Record<string, any>;
   signatories: Omit<ContractSignatory, 'id' | 'contract_id' | 'created_at' | 'updated_at' | 'signed_at' | 'signature_url' | 'ip_address' | 'user_agent'>[];
+  auto_renewal: boolean;
+}
+
+export interface ContractRenewal {
+  id: string;
+  original_contract_id: string;
+  requested_by: string | null;
+  requested_at: string;
+  status: 'pending' | 'in_progress' | 'approved' | 'rejected' | 'cancelled';
+  proposed_changes: Record<string, any>;
+  proposed_start_date: string;
+  proposed_end_date: string;
+  proposed_value: number;
+  gestor_response: string | null;
+  processed_by: string | null;
+  processed_at: string | null;
+  new_contract_id: string | null;
+  escalated_at: string | null;
+  escalated_to: string | null;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  auto_renewal: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ContractCancellation {
+  id: string;
+  contract_id: string;
+  cancelled_by: string | null;
+  cancelled_at: string;
+  reason: 'breach' | 'mutual_agreement' | 'client_request' | 'payment_default' | 'other';
+  description: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  created_at: string;
+}
+
+export interface Notification {
+  id: string;
+  user_id: string;
+  type: 'contract_expiring' | 'renewal_request' | 'approval_needed' | 'contract_signed' | 'contract_cancelled' | 'renewal_approved' | 'renewal_rejected';
+  title: string;
+  message: string;
+  data: Record<string, any>;
+  read_at: string | null;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  expires_at: string | null;
+  action_url: string | null;
+  action_label: string | null;
+  created_at: string;
 }

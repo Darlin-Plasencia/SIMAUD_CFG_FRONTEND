@@ -485,7 +485,42 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ onCreate
                 </div>
 
                 {/* Signature Progress */}
-                {getSignatureProgressDisplay(contract.id)}
+                <div className="space-y-2">
+                  {getSignatureProgressDisplay(contract.id)}
+                  
+                  {/* Auto-renewal indicator */}
+                  {contract.auto_renewal && (
+                    <div className="flex items-center space-x-2 text-xs">
+                      <RefreshCw className="w-4 h-4 text-purple-500" />
+                      <span className="text-purple-600 font-medium">Renovación automática activada</span>
+                    </div>
+                  )}
+                  
+                  {/* Renewal reference */}
+                  {contract.parent_contract_id && (
+                    <div className="flex items-center space-x-2 text-xs">
+                      <FileText className="w-4 h-4 text-blue-500" />
+                      <span className="text-blue-600 font-medium">
+                        Renovación {contract.renewal_type === 'auto_renewal' ? 'automática' : 'manual'}
+                      </span>
+                    </div>
+                  )}
+                  
+                  {/* Expiry warning */}
+                  {contract.actual_status === 'expiring_soon' && (
+                    <div className="flex items-center space-x-2 text-xs">
+                      <AlertTriangle className="w-4 h-4 text-orange-500" />
+                      <span className="text-orange-600 font-medium">Próximo a vencer</span>
+                    </div>
+                  )}
+                  
+                  {contract.actual_status === 'expired' && (
+                    <div className="flex items-center space-x-2 text-xs">
+                      <XCircle className="w-4 h-4 text-red-500" />
+                      <span className="text-red-600 font-medium">Vencido</span>
+                    </div>
+                  )}
+                </div>
 
                 {/* Action Buttons */}
                 <div className="flex items-center space-x-2 mt-4 pt-4 border-t border-gray-100">

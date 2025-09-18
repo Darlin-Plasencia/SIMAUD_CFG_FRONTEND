@@ -23,6 +23,8 @@ import { VariableManagement } from '../admin/VariableManagement';
 import { TemplateManagement } from '../admin/TemplateManagement';
 import { UserProfile } from '../../common/UserProfile';
 import { ContractApprovalQueue } from '../../contracts/ContractApprovalQueue';
+import { NotificationCenter } from '../../notifications/NotificationCenter';
+import { ExpiryAlerts } from '../../notifications/ExpiryAlerts';
 import { LoadingSpinner } from '../../common/LoadingSpinner';
 
 type SupervisorView = 'dashboard' | 'variables' | 'templates' | 'approvals' | 'profile';
@@ -219,10 +221,13 @@ export const SupervisorDashboard: React.FC = () => {
                   className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
                 />
               </div>
-              <button className="relative p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
-                <Bell className="w-5 h-5" />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-              </button>
+              <NotificationCenter onNavigate={(url) => {
+                if (url.includes('/approvals/')) {
+                  setCurrentView('approvals');
+                } else if (url.includes('/templates/')) {
+                  setCurrentView('templates');
+                }
+              }} />
             </div>
           </div>
         </header>
@@ -230,6 +235,16 @@ export const SupervisorDashboard: React.FC = () => {
         {/* Page Content */}
         <main className="flex-1 overflow-auto bg-gray-50">
           <div className="p-6">
+            {/* Expiry Alerts for Dashboard */}
+            {currentView === 'dashboard' && (
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">⚠️ Contratos Próximos a Vencer</h3>
+                <ExpiryAlerts 
+                  onViewContract={() => {/* TODO: Navigate to contract view */}}
+                  maxItems={3}
+                />
+              </div>
+            )}
             {renderMainContent()}
           </div>
         </main>

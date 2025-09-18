@@ -25,9 +25,12 @@ import {
 import { useAuth } from '../../../contexts/AuthContext';
 import { UserProfile } from '../../common/UserProfile';
 import { ContractManagement } from '../../contracts/ContractManagement';
+import { RenewalCenter } from '../../renewals/RenewalCenter';
+import { NotificationCenter } from '../../notifications/NotificationCenter';
+import { ExpiryAlerts } from '../../notifications/ExpiryAlerts';
 import { LoadingSpinner } from '../../common/LoadingSpinner';
 
-type GestorView = 'dashboard' | 'contracts' | 'profile';
+type GestorView = 'dashboard' | 'contracts' | 'renewals' | 'profile';
 
 export const GestorDashboard: React.FC = () => {
   const { user, logout } = useAuth();
@@ -40,6 +43,7 @@ export const GestorDashboard: React.FC = () => {
   const navigationItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
     { id: 'contracts', label: 'Mis Contratos', icon: FileText },
+    { id: 'renewals', label: 'Renovaciones', icon: RefreshCw },
     { id: 'profile', label: 'Mi Perfil', icon: UserCheck }
   ];
 
@@ -84,6 +88,8 @@ export const GestorDashboard: React.FC = () => {
     switch (currentView) {
       case 'contracts':
         return <ContractManagement onCreateContract={handleCreateContract} />;
+      case 'renewals':
+        return <RenewalCenter />;
       case 'profile':
         return <UserProfile />;
       case 'dashboard':
@@ -195,6 +201,7 @@ export const GestorDashboard: React.FC = () => {
                 <p className="text-sm text-gray-500">
                   {currentView === 'dashboard' && 'Panel de control del gestor de contratos'}
                   {currentView === 'contracts' && 'Gestiona tus contratos y documentos'}
+                 {currentView === 'renewals' && 'Gestiona solicitudes de renovación'}
                   {currentView === 'profile' && 'Gestiona tu información personal'}
                 </p>
               </div>
@@ -209,10 +216,13 @@ export const GestorDashboard: React.FC = () => {
                   className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm"
                 />
               </div>
-              <button className="relative p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
-                <Bell className="w-5 h-5" />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-              </button>
+              <NotificationCenter onNavigate={(url) => {
+                if (url.includes('/contracts/')) {
+                  setCurrentView('contracts');
+                } else if (url.includes('/renewals/')) {
+                  setCurrentView('renewals');
+                }
+              }} />
             </div>
           </div>
         </header>
@@ -220,6 +230,16 @@ export const GestorDashboard: React.FC = () => {
         {/* Page Content */}
         <main className="flex-1 overflow-auto bg-gray-50">
           <div className="p-6">
+            {/* Expiry Alerts for Dashboard */}
+            {currentView === 'dashboard' && (
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">⚠️ Mis Contratos Próximos a Vencer</h3>
+                <ExpiryAlerts 
+                  onViewContract={(contractId) => setCurrentView('contracts')}
+                  maxItems={3}
+                />
+              </div>
+            )}
             {renderMainContent()}
           </div>
         </main>
