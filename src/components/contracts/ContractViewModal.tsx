@@ -25,6 +25,7 @@ import { LoadingSpinner } from '../common/LoadingSpinner';
 import { RenewalRequestButton } from '../renewals/RenewalRequestButton';
 import { ContractCancellationModal } from './ContractCancellationModal';
 import { SignatureCanvas } from './SignatureCanvas';
+import { useAuth } from '../../contexts/AuthContext';
 import type { 
   Contract, 
   ContractSignatory, 
@@ -43,6 +44,7 @@ export const ContractViewModal: React.FC<ContractViewModalProps> = ({
   onClose,
   contract
 }) => {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'details' | 'signatories' | 'versions' | 'audit'>('details');
   const [loading, setLoading] = useState(false);
   const [signatories, setSignatories] = useState<ContractSignatory[]>([]);
@@ -332,18 +334,6 @@ export const ContractViewModal: React.FC<ContractViewModalProps> = ({
                        contract.actual_status === 'cancelled' ? 'Cancelado' :
                        contract.actual_status}
                     </span>
-                  )}
-                  
-                  {/* Cancel Contract Button */}
-                  {!['cancelled', 'completed', 'expired', 'renewed'].includes(contract.actual_status || '') && 
-                   contract.approval_status !== 'cancelled' && (
-                    <button
-                      onClick={() => setShowCancellationModal(true)}
-                      className="ml-2 flex items-center space-x-1 px-3 py-1 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors duration-200 text-xs font-medium"
-                    >
-                      <AlertTriangle className="w-3 h-3" />
-                      <span>Cancelar Contrato</span>
-                    </button>
                   )}
                   
                   {/* Auto-renewal indicator */}
@@ -699,14 +689,6 @@ export const ContractViewModal: React.FC<ContractViewModalProps> = ({
                           ) : (
                             <div className="flex items-center justify-between">
                               <p className="text-xs text-gray-500">Pendiente de firma</p>
-                              {/* Show sign button only for current user */}
-                              <button
-                                onClick={() => handleDigitalSign(signatory)}
-                                className="flex items-center space-x-1 px-3 py-1 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors duration-200 text-xs"
-                              >
-                                <PenTool className="w-3 h-3" />
-                                <span>Firmar</span>
-                              </button>
                             </div>
                           )}
                         </div>

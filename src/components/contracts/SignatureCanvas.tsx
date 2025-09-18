@@ -78,17 +78,17 @@ export const SignatureCanvas: React.FC<SignatureCanvasProps> = ({
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden"
+        className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[95vh] overflow-hidden mx-auto"
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-purple-50">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:p-6 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-purple-50">
           <div className="flex items-center space-x-4">
             <div className="p-3 bg-gradient-to-r from-blue-500 to-purple-600 rounded-xl">
               <PenTool className="w-6 h-6 text-white" />
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <h3 className="text-xl font-bold text-gray-900">Firma Digital</h3>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-gray-600 truncate">
                 {signerName} • {contractTitle}
               </p>
             </div>
@@ -96,21 +96,21 @@ export const SignatureCanvas: React.FC<SignatureCanvasProps> = ({
           <button
             onClick={onClose}
             disabled={saving || loading}
-            className="text-gray-400 hover:text-gray-600 p-2 rounded-lg hover:bg-gray-100 transition-colors duration-200"
+            className="text-gray-400 hover:text-gray-600 p-2 rounded-lg hover:bg-gray-100 transition-colors duration-200 mt-2 sm:mt-0 self-end sm:self-auto"
           >
             <X className="w-6 h-6" />
           </button>
         </div>
 
         {/* Instructions */}
-        <div className="p-6 bg-blue-50 border-b border-blue-100">
+        <div className="p-4 sm:p-6 bg-blue-50 border-b border-blue-100">
           <div className="flex items-center space-x-3">
             <div className="p-2 bg-blue-100 rounded-lg">
               <PenTool className="w-5 h-5 text-blue-600" />
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <h4 className="font-semibold text-blue-900">Instrucciones de Firma</h4>
-              <p className="text-sm text-blue-700">
+              <p className="text-xs sm:text-sm text-blue-700">
                 Dibuja tu firma en el área designada usando el mouse, trackpad o pantalla táctil. 
                 Asegúrate de que sea clara y legible.
               </p>
@@ -119,16 +119,16 @@ export const SignatureCanvas: React.FC<SignatureCanvasProps> = ({
         </div>
 
         {/* Signature Area */}
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           <div className="border-2 border-dashed border-gray-300 rounded-xl p-4 bg-gray-50">
-            <div className="bg-white border-2 border-gray-200 rounded-lg shadow-inner">
+            <div className="bg-white border-2 border-gray-200 rounded-lg shadow-inner overflow-hidden">
               <SignatureCanvasLib
                 ref={signatureRef}
                 onBegin={handleSignatureBegin}
                 onEnd={handleSignatureEnd}
                 canvasProps={{
                   className: 'signature-canvas',
-                  width: 800,
+                  width: window.innerWidth < 768 ? 400 : 800,
                   height: 200,
                   style: {
                     width: '100%',
@@ -145,7 +145,7 @@ export const SignatureCanvas: React.FC<SignatureCanvasProps> = ({
                 dotSize={0.5}
               />
             </div>
-            <div className="flex items-center justify-center mt-4 text-sm text-gray-500">
+            <div className="flex items-center justify-center mt-4 text-xs sm:text-sm text-gray-500">
               <PenTool className="w-4 h-4 mr-2" />
               <span>Área de Firma - {signerName}</span>
               {isEmpty && (
@@ -158,9 +158,9 @@ export const SignatureCanvas: React.FC<SignatureCanvasProps> = ({
         </div>
 
         {/* Legal Text */}
-        <div className="px-6 pb-4">
+        <div className="px-4 sm:px-6 pb-4">
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-            <p className="text-xs text-gray-600 leading-relaxed">
+            <p className="text-xs leading-relaxed text-gray-600">
               <strong>Declaración Legal:</strong> Al firmar digitalmente este documento, acepto que:
               (1) Esta firma digital tiene la misma validez legal que una firma manuscrita,
               (2) He leído y entendido completamente el contenido del contrato,
@@ -171,19 +171,19 @@ export const SignatureCanvas: React.FC<SignatureCanvasProps> = ({
         </div>
 
         {/* Actions */}
-        <div className="flex items-center justify-between p-6 border-t border-gray-200 bg-gray-50">
-          <div className="flex space-x-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:p-6 border-t border-gray-200 bg-gray-50 space-y-3 sm:space-y-0">
+          <div className="flex flex-wrap gap-2">
             <button
               onClick={clearSignature}
               disabled={isEmpty || saving || loading}
-              className="flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors duration-200 disabled:opacity-50"
+              className="flex items-center space-x-2 px-3 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors duration-200 disabled:opacity-50 text-sm"
             >
               <RotateCcw className="w-4 h-4" />
               <span>Borrar</span>
             </button>
             
             {/* Debug info */}
-            <div className="text-xs text-gray-500 flex items-center space-x-2">
+            <div className="hidden sm:flex text-xs text-gray-500 items-center space-x-2">
               <span>Debug:</span>
               <span className={isEmpty ? 'text-red-600' : 'text-green-600'}>
                 {isEmpty ? 'Vacía' : 'Con firma'}
@@ -191,18 +191,18 @@ export const SignatureCanvas: React.FC<SignatureCanvasProps> = ({
             </div>
           </div>
           
-          <div className="flex space-x-3">
+          <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3 w-full sm:w-auto">
             <button
               onClick={onClose}
               disabled={saving || loading}
-              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-100 transition-colors duration-200"
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-100 transition-colors duration-200 text-sm"
             >
               Cancelar
             </button>
             <button
               onClick={handleSave}
               disabled={isEmpty || saving || loading}
-              className={`flex items-center space-x-2 px-6 py-3 rounded-lg font-bold text-white transition-all duration-200 shadow-lg text-lg ${
+              className={`flex items-center justify-center space-x-2 px-4 sm:px-6 py-2 sm:py-3 rounded-lg font-bold text-white transition-all duration-200 shadow-lg text-sm sm:text-lg min-h-[44px] ${
                 isEmpty || saving || loading
                   ? 'bg-gray-400 cursor-not-allowed opacity-50'
                   : 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 transform hover:scale-105'
@@ -211,12 +211,14 @@ export const SignatureCanvas: React.FC<SignatureCanvasProps> = ({
               {saving || loading ? (
                 <>
                   <LoadingSpinner size="small" />
-                  <span className="font-bold">Guardando firma...</span>
+                  <span className="font-bold hidden sm:inline">Guardando firma...</span>
+                  <span className="font-bold sm:hidden">Guardando...</span>
                 </>
               ) : (
                 <>
                   <CheckCircle className="w-5 h-5" />
-                  <span className="font-bold">CONFIRMAR FIRMA</span>
+                  <span className="font-bold hidden sm:inline">CONFIRMAR FIRMA</span>
+                  <span className="font-bold sm:hidden">FIRMAR</span>
                 </>
               )}
             </button>

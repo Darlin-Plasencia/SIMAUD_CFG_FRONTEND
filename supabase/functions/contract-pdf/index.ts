@@ -351,6 +351,16 @@ function generateContractPDF(contract: any, includeSignatures: boolean): string 
           font-family: monospace;
         }
         
+        .document-id-page {
+          position: fixed;
+          top: 20px;
+          right: 40px;
+          font-size: 10px;
+          color: #9ca3af;
+          font-family: monospace;
+          z-index: 1000;
+        }
+        
         @media print {
           .document-container {
             margin: 0;
@@ -358,8 +368,18 @@ function generateContractPDF(contract: any, includeSignatures: boolean): string 
             box-shadow: none;
           }
           
-          .signatures-section {
-            page-break-before: auto;
+          .document-id-page {
+            display: block;
+          }
+          
+          @page {
+            margin: 20mm;
+            @top-right {
+              content: "ID: ${contract.id}";
+              font-size: 10px;
+              color: #9ca3af;
+              font-family: monospace;
+            }
           }
         }
         
@@ -391,7 +411,7 @@ function generateContractPDF(contract: any, includeSignatures: boolean): string 
     </head>
     <body>
       <div class="document-container">
-        <div class="document-id">ID: ${contract.id}</div>
+        <div class="document-id-page">ID: ${contract.id}</div>
         
         <div class="header">
           <h1>${contract.title}</h1>
@@ -450,7 +470,7 @@ ${processedContent}
           </div>
         </div>
         
-        ${includeSignatures ? generateSignaturesSection(sortedSignatories, currentDate) : ''}
+        ${includeSignatures ? generateInlineSignaturesSection(sortedSignatories, currentDate) : ''}
         
         <div class="footer">
           <p><strong>Documento generado por SIMAUD</strong></p>
@@ -478,10 +498,10 @@ ${processedContent}
   return html;
 }
 
-function generateSignaturesSection(signatories: any[], currentDate: string): string {
+function generateInlineSignaturesSection(signatories: any[], currentDate: string): string {
   if (!signatories || signatories.length === 0) {
     return `
-      <div class="signatures-section">
+      <div style="margin-top: 40px;">
         <div class="signatures-title">Sección de Firmas</div>
         <p style="text-align: center; color: #6b7280; font-style: italic;">
           No hay firmantes registrados para este contrato.
@@ -537,10 +557,10 @@ function generateSignaturesSection(signatories: any[], currentDate: string): str
        </p>`;
 
   return `
-    <div class="signatures-section">
+    <div style="margin-top: 60px;">
       <div class="signatures-title">Firmas del Contrato</div>
       
-      <div class="signatures-grid">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 30px; margin-top: 30px;">
         ${signaturesHtml}
       </div>
       

@@ -159,7 +159,9 @@ export const ContractApprovalQueue: React.FC = () => {
 
       // PASO 2: Actualizar el contrato (CRÍTICO)
       const contractUpdate: any = {
-        approval_status: isApproved ? 'approved' : 'rejected'
+        approval_status: isApproved ? 'approved' : 'rejected',
+        status: isApproved ? 'active' : 'draft',
+        actual_status: isApproved ? 'active' : 'draft'
       };
 
       if (isApproved) {

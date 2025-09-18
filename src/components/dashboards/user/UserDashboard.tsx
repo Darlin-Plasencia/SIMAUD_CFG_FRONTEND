@@ -217,14 +217,15 @@ export const UserDashboard: React.FC = () => {
     }
 
     try {
-      console.log('🔍 Finding signatory record for contract:', contract.id, 'user:', user.email);
+      console.log('🔍 Finding signatory record for contract:', contract.id, 'user:', user.email, 'user_id:', user.id);
 
       // Buscar el registro del firmante para este contrato
       const { data: signatory, error: signatoryError } = await supabase
         .from('contract_signatories')
         .select('*')
         .eq('contract_id', contract.id)
-        .eq('user_id', user.id)
+        .or(`user_id.eq.${user.id},email.eq."${user.email}"`)
+        .is('signed_at', null) // Solo firmantes que NO han firmado aún
         .limit(1);
 
       if (signatoryError) {
@@ -235,7 +236,7 @@ export const UserDashboard: React.FC = () => {
 
       const signatoryRecord = signatory?.[0];
       if (!signatoryRecord) {
-        setError('No se encontró el registro de firmante para este contrato');
+        setError('No se encontró un registro de firmante pendiente para ti en este contrato');
         return;
       }
 
@@ -244,8 +245,21 @@ export const UserDashboard: React.FC = () => {
         return;
       }
 
+      // Verificar que el firmante corresponde realmente al usuario actual
+      if (signatoryRecord.user_id !== user.id && signatoryRecord.email !== user.email) {
+        setError('Este registro de firmante no te corresponde');
+        return;
+      }
       console.log('📝 Found signatory record:', signatoryRecord);
-      setCurrentSignatory({ ...signatoryRecord, contract_title: contract.title });
+      setCurrentSignatory({
+        id: signatoryRecord.id,
+        contract_id: signatoryRecord.contract_id,
+        name: signatoryRecord.name,
+        email: signatoryRecord.email,
+        role: signatoryRecord.role,
+        signing_order: signatoryRecord.signing_order,
+        contract_title: contract.title
+      });
       setShowSignatureModal(true);
       
     } catch (error: any) {
@@ -258,7 +272,13 @@ export const UserDashboard: React.FC = () => {
     if (!currentSignatory) return;
 
     try {
-      console.log('💾 Saving signature for signatory:', currentSignatory.id);
+      console.log('💾 Saving signature for signatory ID:', currentSignatory.id);
+      console.log('💾 Signatory details:', {
+        id: currentSignatory.id,
+        name: currentSignatory.name,
+        email: currentSignatory.email,
+        contract_id: currentSignatory.contract_id
+      });
 
       // Update signatory with signature
       const { error: updateError } = await supabase
@@ -279,6 +299,18 @@ export const UserDashboard: React.FC = () => {
 
       console.log('✅ Digital signature saved successfully');
 
+      // Verificar que solo se actualizó UN registro
+      const { data: updatedSignatory, error: verifyError } = await supabase
+        .from('contract_signatories')
+        .select('id, name, signed_at')
+        .eq('id', currentSignatory.id)
+        .single();
+
+      if (verifyError) {
+        console.error('❌ Error verifying signature update:', verifyError);
+      } else {
+        console.log('✅ Verified signature update for:', updatedSignatory);
+      }
       // Update local state
       setContracts(prev => prev.map(c => 
         c.id === currentSignatory.contract_id 
@@ -286,6 +318,8 @@ export const UserDashboard: React.FC = () => {
           : c
       ));
 
+      // Reload contracts from database to ensure fresh data
+      await loadSignatoryContracts();
       setSuccessMessage(`Contrato "${currentSignatory.contract_title}" firmado digitalmente con éxito`);
       setShowSignatureModal(false);
       setCurrentSignatory(null);

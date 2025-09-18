@@ -249,16 +249,6 @@ export const GestorDashboard: React.FC = () => {
         {/* Page Content */}
         <main className="flex-1 overflow-auto bg-gray-50">
           <div className="p-6">
-            {/* Expiry Alerts only for Dashboard */}
-            {currentView === 'dashboard' && (
-              <div className="mb-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">⚠️ Mis Contratos Próximos a Vencer</h3>
-                <ExpiryAlerts 
-                  onViewContract={(contractId) => setCurrentView('contracts')}
-                  maxItems={3}
-                />
-              </div>
-            )}
             {renderMainContent()}
           </div>
         </main>
