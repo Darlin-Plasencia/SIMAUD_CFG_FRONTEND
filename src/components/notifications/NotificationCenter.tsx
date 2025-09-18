@@ -11,7 +11,8 @@ import {
   FileText,
   Users,
   Trash2,
-  ExternalLink
+  ExternalLink,
+  XCircle
 } from 'lucide-react';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 import { supabase } from '../../lib/supabase';

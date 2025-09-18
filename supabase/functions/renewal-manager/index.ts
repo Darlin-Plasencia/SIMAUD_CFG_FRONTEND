@@ -356,6 +356,7 @@ async function createRenewal(supabase: any, userId: string, data: RenewalRequest
 async function processRenewal(supabase: any, userId: string, data: RenewalResponse) {
   try {
     console.log('🔄 Processing renewal:', data);
+    console.log('📋 Processing renewal with status:', data.status);
 
     // Get renewal details
     const { data: renewal, error: renewalError } = await supabase
@@ -390,6 +391,7 @@ async function processRenewal(supabase: any, userId: string, data: RenewalRespon
     if (updateError) throw updateError;
 
     if (data.status === 'approved') {
+      console.log('✅ Renewal APPROVED - Creating new contract...');
       // Create new contract based on renewal
       const newContract = await createRenewalContract(supabase, renewal, userId);
       
@@ -423,6 +425,7 @@ async function processRenewal(supabase: any, userId: string, data: RenewalRespon
         new_contract: newContract
       };
     } else {
+      console.log('❌ Renewal REJECTED - NOT creating new contract');
       // Create notification for requester (rejection)
       await supabase
         .from('notifications')
@@ -441,7 +444,7 @@ async function processRenewal(supabase: any, userId: string, data: RenewalRespon
 
       return {
         success: true,
-        message: 'Renovación rechazada'
+        message: 'Renovación rechazada - No se creó contrato nuevo'
       };
     }
 

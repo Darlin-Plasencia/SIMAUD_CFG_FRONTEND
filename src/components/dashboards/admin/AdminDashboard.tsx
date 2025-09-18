@@ -32,11 +32,12 @@ import { ContractApprovalQueue } from '../../contracts/ContractApprovalQueue';
 import { ReportsCenter } from '../../reports/ReportsCenter';
 import { RenewalCenter } from '../../renewals/RenewalCenter';
 import { SystemConfiguration } from '../admin/SystemConfiguration';
+import { ContractManagementAdmin } from '../admin/ContractManagementAdmin';
 import { NotificationCenter } from '../../notifications/NotificationCenter';
 import { ExpiryAlerts } from '../../notifications/ExpiryAlerts';
 import { LoadingSpinner } from '../../common/LoadingSpinner';
 
-type AdminView = 'dashboard' | 'users' | 'templates' | 'variables' | 'contracts' | 'approvals' | 'renewals' | 'reports' | 'settings' | 'profile';
+type AdminView = 'dashboard' | 'users' | 'templates' | 'variables' | 'contracts' | 'management' | 'approvals' | 'renewals' | 'reports' | 'settings' | 'profile';
 
 export const AdminDashboard: React.FC = () => {
   const { user, logout } = useAuth();
@@ -52,6 +53,7 @@ export const AdminDashboard: React.FC = () => {
     { id: 'templates', label: 'Plantillas Contratos', icon: FileText },
     { id: 'variables', label: 'Variables Sistema', icon: Settings },
     { id: 'contracts', label: 'Contratos', icon: FileText },
+    { id: 'management', label: 'Gestión', icon: Settings },
     { id: 'approvals', label: 'Aprobaciones', icon: Bell },
     { id: 'renewals', label: 'Renovaciones', icon: RefreshCw },
     { id: 'reports', label: 'Centro de Reportes', icon: BarChart3 },
@@ -118,6 +120,8 @@ export const AdminDashboard: React.FC = () => {
         return <VariableManagement onCreateVariable={handleCreateVariable} />;
       case 'contracts':
         return <ContractManagement onCreateContract={handleCreateContract} />;
+      case 'management':
+        return <ContractManagementAdmin />;
       case 'approvals':
         return <ContractApprovalQueue />;
       case 'renewals':
@@ -256,6 +260,7 @@ export const AdminDashboard: React.FC = () => {
                   {currentView === 'templates' && 'Gestiona plantillas de contratos'}
                   {currentView === 'variables' && 'Administra variables del sistema'}
                   {currentView === 'contracts' && 'Gestiona contratos y documentos'}
+                  {currentView === 'management' && 'Gestión avanzada de contratos - Eliminar permanentemente'}
                   {currentView === 'approvals' && 'Revisa y aprueba contratos pendientes'}
                   {currentView === 'renewals' && 'Gestiona renovaciones de contratos'}
                   {currentView === 'reports' && 'Centro completo de reportes y analytics'}

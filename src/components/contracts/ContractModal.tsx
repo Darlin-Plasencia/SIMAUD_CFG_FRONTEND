@@ -28,10 +28,13 @@ import type {
   ContractSignatory 
 } from '../../types/contracts';
 
-interface ContractClient {
+interface ContractParticipant {
+  cedula: string;
   name: string;
   email: string;
   phone: string;
+  role: 'client' | 'contractor' | 'witness';
+  signing_order: number;
 }
 
 interface ContractModalProps {
@@ -62,9 +65,9 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   const [formData, setFormData] = useState<ContractFormData>({
     template_id: '',
     title: '',
-    client_name: '', // Keep for backward compatibility
-    client_email: '', // Keep for backward compatibility  
-    client_phone: '', // Keep for backward compatibility
+    client_name: '',
+    client_email: '',
+    client_phone: '',
     contract_value: null,
     start_date: null,
     end_date: null,
@@ -74,9 +77,12 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     auto_renewal: contract?.auto_renewal || false
   });
 
-  const [clients, setClients] = useState<ContractClient[]>([
-    { name: '', email: '', phone: '' }
+  const [participants, setParticipants] = useState<ContractParticipant[]>([
+    { cedula: '', name: '', email: '', phone: '', role: 'client', signing_order: 1 }
   ]);
+  const [lookupLoading, setLookupLoading] = useState<Record<number, boolean>>({});
+  const [lookupMessages, setLookupMessages] = useState<Record<number, string>>({});
+
   useEffect(() => {
     if (isOpen) {
       loadTemplates();
@@ -104,7 +110,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
           variables_data: {},
           signatories: []
         });
-        setClients([{ name: '', email: '', phone: '' }]);
+        setParticipants([{ cedula: '', name: '', email: '', phone: '', role: 'client', signing_order: 1 }]);
       }
       
       if (contract && isEditMode) {
@@ -185,12 +191,26 @@ export const ContractModal: React.FC<ContractModalProps> = ({
         auto_renewal: contract.auto_renewal || false
       });
       
-      // Configurar clientes - si existe client_name, usarlo como primer cliente
-      if (contract.client_name || contract.client_email) {
-        setClients([{
+      // Configurar participantes basado en firmantes existentes
+      if (formattedSignatories.length > 0) {
+        const participantsFromSignatories = formattedSignatories.map((sig, index) => ({
+          cedula: '', // La cédula se debe buscar o ingresar manualmente
           name: contract.client_name || '',
           email: contract.client_email || '',
-          phone: contract.client_phone || ''
+          phone: contract.client_phone || '',
+          role: sig.role as 'client' | 'contractor' | 'witness',
+          signing_order: sig.signing_order
+        }));
+        setParticipants(participantsFromSignatories);
+      } else if (contract.client_name || contract.client_email) {
+        // Fallback: usar datos del cliente principal
+        setParticipants([{
+          cedula: '',
+          name: contract.client_name || '',
+          email: contract.client_email || '',
+          phone: contract.client_phone || '',
+          role: 'client',
+          signing_order: 1
         }]);
       }
       
@@ -211,6 +231,48 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     } catch (error) {
       console.error('Error loading contract data:', error);
       setError('Error al cargar los datos del contrato');
+    }
+  };
+
+  const lookupUserByCedula = async (index: number, cedula: string) => {
+    if (!cedula.trim()) {
+      setLookupMessages(prev => ({ ...prev, [index]: '' }));
+      return;
+    }
+
+    setLookupLoading(prev => ({ ...prev, [index]: true }));
+    setLookupMessages(prev => ({ ...prev, [index]: '' }));
+
+    try {
+      const { data: userProfile, error } = await supabase
+        .from('user_profiles')
+        .select('cedula, name, email, phone')
+        .eq('cedula', cedula.trim())
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        throw error;
+      }
+
+      if (userProfile) {
+        // Auto-fill the form with found data
+        setParticipants(prev => prev.map((participant, i) =>
+          i === index ? {
+            ...participant,
+            name: userProfile.name,
+            email: userProfile.email,
+            phone: userProfile.phone || ''
+          } : participant
+        ));
+        setLookupMessages(prev => ({ ...prev, [index]: '✅ Usuario encontrado y datos completados' }));
+      } else {
+        setLookupMessages(prev => ({ ...prev, [index]: '⚠️ No se encontró usuario con esta cédula' }));
+      }
+    } catch (error) {
+      console.error('Error looking up user by cedula:', error);
+      setLookupMessages(prev => ({ ...prev, [index]: '❌ Error al buscar usuario' }));
+    } finally {
+      setLookupLoading(prev => ({ ...prev, [index]: false }));
     }
   };
 
@@ -266,19 +328,21 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   };
 
   const validateForm = () => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    
     if (!formData.template_id) return 'Debe seleccionar una plantilla';
     if (!formData.title.trim()) return 'El título es requerido';
     
-    // Validar clientes
-    const validClients = clients.filter(c => c.name.trim() || c.email.trim());
-    if (validClients.length === 0) return 'Debe agregar al menos un cliente';
+    // Validar participantes
+    const validParticipants = participants.filter(p => p.name.trim() || p.email.trim() || p.cedula.trim());
+    if (validParticipants.length === 0) return 'Debe agregar al menos un participante';
     
-    for (const client of validClients) {
-      if (!client.name.trim()) return 'Todos los clientes deben tener nombre';
-      if (!client.email.trim()) return 'Todos los clientes deben tener email';
+    for (const participant of validParticipants) {
+      if (!participant.cedula.trim()) return 'Todos los participantes deben tener cédula';
+      if (!participant.name.trim()) return 'Todos los participantes deben tener nombre';
+      if (!participant.email.trim()) return 'Todos los participantes deben tener email';
       
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(client.email)) return 'Email de cliente inválido: ' + client.email;
+      if (!emailRegex.test(participant.email)) return 'Email inválido: ' + participant.email;
     }
     
     // Validar variables requeridas
@@ -288,17 +352,6 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     
     if (missingVariables.length > 0) {
       return `Faltan variables requeridas: ${missingVariables.join(', ')}`;
-    }
-    
-    // Validar firmantes
-    if (formData.signatories.length === 0) {
-      return 'Debe agregar al menos un firmante';
-    }
-    
-    for (const signatory of formData.signatories) {
-      if (!signatory.name.trim()) return 'Todos los firmantes deben tener nombre';
-      if (!signatory.email.trim()) return 'Todos los firmantes deben tener email';
-      if (!emailRegex.test(signatory.email)) return 'Email de firmante inválido';
     }
     
     return null;
@@ -336,8 +389,9 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   const handleCreateContract = async () => {
     if (!user) throw new Error('Usuario no autenticado');
 
-    // Usar el primer cliente para campos de compatibilidad
-    const primaryClient = clients.find(c => c.name.trim() && c.email.trim()) || clients[0];
+    // Usar el primer participante para campos de compatibilidad
+    const primaryParticipant = participants.find(p => p.name.trim() && p.email.trim()) || participants[0];
+    
     // Crear el contrato
     const { data: contractData, error: contractError } = await supabase
       .from('contracts')
@@ -346,9 +400,9 @@ export const ContractModal: React.FC<ContractModalProps> = ({
         title: formData.title,
         content: selectedTemplate?.content || '',
         variables_data: formData.variables_data,
-        client_name: primaryClient.name,
-        client_email: primaryClient.email,
-        client_phone: primaryClient.phone,
+        client_name: primaryParticipant.name,
+        client_email: primaryParticipant.email,
+        client_phone: primaryParticipant.phone,
         contract_value: formData.contract_value,
         start_date: formData.start_date,
         end_date: formData.end_date,
@@ -366,11 +420,15 @@ export const ContractModal: React.FC<ContractModalProps> = ({
 
     if (contractError) throw contractError;
 
-    // Crear firmantes
-    const signatoriesToInsert = formData.signatories.map(signatory => ({
+    // Crear firmantes basado en participantes
+    const signatoriesToInsert = participants.map(participant => ({
       contract_id: contractData.id,
+      name: participant.name,
+      email: participant.email,
+      phone: participant.phone,
+      role: participant.role,
+      signing_order: participant.signing_order,
       status: 'pending',
-      ...signatory
     }));
 
     const { error: signatoriesError } = await supabase
@@ -380,11 +438,11 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     if (signatoriesError) throw signatoriesError;
 
     // Intentar vincular firmantes con usuarios existentes
-    for (const signatory of formData.signatories) {
+    for (const participant of participants) {
       const { data: userData } = await supabase
         .from('user_profiles')
         .select('id')
-        .eq('email', signatory.email)
+        .eq('email', participant.email)
         .single();
       
       if (userData) {
@@ -392,9 +450,10 @@ export const ContractModal: React.FC<ContractModalProps> = ({
           .from('contract_signatories')
           .update({ user_id: userData.id })
           .eq('contract_id', contractData.id)
-          .eq('email', signatory.email);
+          .eq('email', participant.email);
       }
     }
+    
     // Crear primera versión
     const { error: versionError } = await supabase
       .from('contract_versions')
@@ -431,16 +490,17 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     // Generar contenido procesado antes de actualizar
     generatePreview();
 
-    // Usar el primer cliente para campos de compatibilidad
-    const primaryClient = clients.find(c => c.name.trim() && c.email.trim()) || clients[0];
+    // Usar el primer participante para campos de compatibilidad
+    const primaryParticipant = participants.find(p => p.name.trim() && p.email.trim()) || participants[0];
+    
     const { error: contractError } = await supabase
       .from('contracts')
       .update({
         title: formData.title,
         variables_data: formData.variables_data,
-        client_name: primaryClient.name,
-        client_email: primaryClient.email,
-        client_phone: primaryClient.phone,
+        client_name: primaryParticipant.name,
+        client_email: primaryParticipant.email,
+        client_phone: primaryParticipant.phone,
         contract_value: formData.contract_value,
         start_date: formData.start_date,
         end_date: formData.end_date,
@@ -494,10 +554,15 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     if (deleteError) throw deleteError;
     console.log('✅ Old signatories deleted');
 
-    const signatoriesToInsert = formData.signatories.map(signatory => ({
+    // Crear firmantes basado en participantes
+    const signatoriesToInsert = participants.map(participant => ({
       contract_id: contract.id,
+      name: participant.name,
+      email: participant.email,
+      phone: participant.phone,
+      role: participant.role,
+      signing_order: participant.signing_order,
       status: 'pending',
-      ...signatory
     }));
 
     console.log('👥 Inserting new signatories:', signatoriesToInsert);
@@ -509,11 +574,11 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     console.log('✅ New signatories created');
 
     // Vincular firmantes con usuarios existentes después de actualizar
-    for (const signatory of formData.signatories) {
+    for (const participant of participants) {
       const { data: userData } = await supabase
         .from('user_profiles')
         .select('id')
-        .eq('email', signatory.email)
+        .eq('email', participant.email)
         .single();
       
       if (userData) {
@@ -521,7 +586,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
           .from('contract_signatories')
           .update({ user_id: userData.id })
           .eq('contract_id', contract.id)
-          .eq('email', signatory.email);
+          .eq('email', participant.email);
         
         if (updateError) console.warn('Could not link signatory to user:', updateError);
       }
@@ -542,51 +607,44 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     }));
   };
 
-  const addSignatory = () => {
-    setFormData(prev => ({
-      ...prev,
-      signatories: [...prev.signatories, {
-        name: '',
-        email: '',
-        phone: '',
-        role: 'client',
-        signing_order: prev.signatories.length + 1
-      }]
-    }));
+  const addParticipant = () => {
+    setParticipants(prev => [...prev, { 
+      cedula: '', 
+      name: '', 
+      email: '', 
+      phone: '', 
+      role: 'client', 
+      signing_order: prev.length + 1 
+    }]);
   };
 
-  const removeSignatory = (index: number) => {
-    setFormData(prev => ({
-      ...prev,
-      signatories: prev.signatories.filter((_, i) => i !== index)
-    }));
-  };
-
-  const updateSignatory = (index: number, field: keyof ContractSignatory, value: any) => {
-    setFormData(prev => ({
-      ...prev,
-      signatories: prev.signatories.map((signatory, i) =>
-        i === index ? { ...signatory, [field]: value } : signatory
-      )
-    }));
-  };
-
-  const addClient = () => {
-    setClients(prev => [...prev, { name: '', email: '', phone: '' }]);
-  };
-
-  const removeClient = (index: number) => {
-    if (clients.length > 1) {
-      setClients(prev => prev.filter((_, i) => i !== index));
+  const removeParticipant = (index: number) => {
+    if (participants.length > 1) {
+      setParticipants(prev => prev.filter((_, i) => i !== index).map((p, i) => ({
+        ...p,
+        signing_order: i + 1
+      })));
+      // Clear lookup messages for this index
+      setLookupMessages(prev => {
+        const newMessages = { ...prev };
+        delete newMessages[index];
+        return newMessages;
+      });
     }
   };
 
-  const updateClient = (index: number, field: keyof ContractClient, value: string) => {
-    setClients(prev => prev.map((client, i) =>
-      i === index ? { ...client, [field]: value } : client
+  const updateParticipant = (index: number, field: keyof ContractParticipant, value: string | number) => {
+    setParticipants(prev => prev.map((participant, i) =>
+      i === index ? { ...participant, [field]: value } : participant
     ));
     if (error) setError('');
+    
+    // Clear lookup message when editing manually
+    if (field !== 'cedula') {
+      setLookupMessages(prev => ({ ...prev, [index]: '' }));
+    }
   };
+
   if (!isOpen) return null;
 
   const modalTitle = isEditMode ? 'Editar Contrato' : 'Nuevo Contrato';
@@ -698,31 +756,33 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                   </div>
                 </div>
 
-                {/* Client Info */}
-                {/* Multiple Clients */}
-                <div className="border border-gray-200 rounded-lg p-4">
+                {/* Participants Section */}
+                <div className="border border-gray-200 rounded-lg p-6">
                   <div className="flex items-center justify-between mb-4">
-                    <h4 className="text-sm font-semibold text-gray-900">Información de Clientes</h4>
+                    <div>
+                      <h4 className="text-lg font-semibold text-gray-900">Participantes del Contrato</h4>
+                      <p className="text-sm text-gray-600">Agrega todas las personas que participarán en el contrato</p>
+                    </div>
                     <button
                       type="button"
-                      onClick={addClient}
+                      onClick={addParticipant}
                       className="flex items-center space-x-2 px-3 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors duration-200"
                       disabled={loading}
                     >
                       <Plus className="w-4 h-4" />
-                      <span className="text-sm">Agregar Cliente</span>
+                      <span className="text-sm">Agregar Participante</span>
                     </button>
                   </div>
                   
                   <div className="space-y-4">
-                    {clients.map((client, index) => (
-                      <div key={index} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                    {participants.map((participant, index) => (
+                      <div key={index} className="border border-gray-200 rounded-lg p-5 bg-gray-50">
                         <div className="flex items-center justify-between mb-3">
-                          <h5 className="text-sm font-medium text-gray-700">Cliente {index + 1}</h5>
-                          {clients.length > 1 && (
+                          <h5 className="text-sm font-medium text-gray-700">Participante {index + 1}</h5>
+                          {participants.length > 1 && (
                             <button
                               type="button"
-                              onClick={() => removeClient(index)}
+                              onClick={() => removeParticipant(index)}
                               className="text-red-500 hover:text-red-700"
                               disabled={loading}
                             >
@@ -730,12 +790,56 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                             </button>
                           )}
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                          <div>
+                        
+                        {/* Cédula con búsqueda */}
+                        <div className="mb-4">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Cédula *
+                          </label>
+                          <div className="flex space-x-2">
                             <input
                               type="text"
-                              value={client.name}
-                              onChange={(e) => updateClient(index, 'name', e.target.value)}
+                              value={participant.cedula}
+                              onChange={(e) => updateParticipant(index, 'cedula', e.target.value)}
+                              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              placeholder="Número de cédula"
+                              required
+                              disabled={loading}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => lookupUserByCedula(index, participant.cedula)}
+                              disabled={loading || lookupLoading[index] || !participant.cedula.trim()}
+                              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                            >
+                              {lookupLoading[index] ? (
+                                <LoadingSpinner size="small" />
+                              ) : (
+                                'Buscar'
+                              )}
+                            </button>
+                          </div>
+                          {lookupMessages[index] && (
+                            <p className={`text-xs mt-1 ${
+                              lookupMessages[index].includes('✅') ? 'text-green-600' :
+                              lookupMessages[index].includes('⚠️') ? 'text-yellow-600' :
+                              'text-red-600'
+                            }`}>
+                              {lookupMessages[index]}
+                            </p>
+                          )}
+                        </div>
+                        
+                        {/* Información personal */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                              Nombre Completo *
+                            </label>
+                            <input
+                              type="text"
+                              value={participant.name}
+                              onChange={(e) => updateParticipant(index, 'name', e.target.value)}
                               className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                               placeholder="Nombre completo"
                               required
@@ -743,25 +847,51 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                             />
                           </div>
                           <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                              Email *
+                            </label>
                             <input
                               type="email"
-                              value={client.email}
-                              onChange={(e) => updateClient(index, 'email', e.target.value)}
+                              value={participant.email}
+                              onChange={(e) => updateParticipant(index, 'email', e.target.value)}
                               className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                               placeholder="Email"
                               required
                               disabled={loading}
                             />
                           </div>
+                        </div>
+                        
+                        {/* Teléfono y rol */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                              Teléfono
+                            </label>
                             <input
                               type="tel"
-                              value={client.phone}
-                              onChange={(e) => updateClient(index, 'phone', e.target.value)}
+                              value={participant.phone}
+                              onChange={(e) => updateParticipant(index, 'phone', e.target.value)}
                               className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                               placeholder="Teléfono"
                               disabled={loading}
                             />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                              Rol en el Contrato *
+                            </label>
+                            <select
+                              value={participant.role}
+                              onChange={(e) => updateParticipant(index, 'role', e.target.value)}
+                              className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              disabled={loading}
+                              required
+                            >
+                              <option value="client">Cliente</option>
+                              <option value="contractor">Contratista</option>
+                              <option value="witness">Testigo</option>
+                            </select>
                           </div>
                         </div>
                       </div>
@@ -857,86 +987,6 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                   </div>
                 )}
 
-                {/* Signatories */}
-                <div className="border border-gray-200 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-4">
-                    <h4 className="text-sm font-semibold text-gray-900">Firmantes del Contrato</h4>
-                    <button
-                      type="button"
-                      onClick={addSignatory}
-                      className="flex items-center space-x-2 px-3 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors duration-200"
-                      disabled={loading}
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span className="text-sm">Agregar Firmante</span>
-                    </button>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    {formData.signatories.map((signatory, index) => (
-                      <div key={index} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
-                        <div className="flex items-center justify-between mb-3">
-                          <h5 className="text-sm font-medium text-gray-700">Firmante {index + 1}</h5>
-                          <button
-                            type="button"
-                            onClick={() => removeSignatory(index)}
-                            className="text-red-500 hover:text-red-700"
-                            disabled={loading}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                          <div>
-                            <input
-                              type="text"
-                              value={signatory.name}
-                              onChange={(e) => updateSignatory(index, 'name', e.target.value)}
-                              className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                              placeholder="Nombre completo"
-                              required
-                              disabled={loading}
-                            />
-                          </div>
-                          <div>
-                            <input
-                              type="email"
-                              value={signatory.email}
-                              onChange={(e) => updateSignatory(index, 'email', e.target.value)}
-                              className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                              placeholder="Email"
-                              required
-                              disabled={loading}
-                            />
-                          </div>
-                          <div>
-                            <input
-                              type="tel"
-                              value={signatory.phone || ''}
-                              onChange={(e) => updateSignatory(index, 'phone', e.target.value)}
-                              className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                              placeholder="Teléfono"
-                              disabled={loading}
-                            />
-                          </div>
-                          <div>
-                            <select
-                              value={signatory.role}
-                              onChange={(e) => updateSignatory(index, 'role', e.target.value)}
-                              className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                              disabled={loading}
-                            >
-                              <option value="client">Cliente</option>
-                              <option value="contractor">Contratista</option>
-                              <option value="witness">Testigo</option>
-                            </select>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
                 {/* Notes */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -951,8 +1001,6 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                     disabled={loading}
                   />
                 </div>
-
-                {/* Error Message */}
 
                 {/* Auto-renewal option */}
                 <div>
@@ -976,6 +1024,8 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                     <RefreshCw className="w-5 h-5 text-purple-600" />
                   </div>
                 </div>
+                
+                {/* Error Message */}
                 {error && (
                   <motion.div
                     initial={{ opacity: 0, y: -10 }}

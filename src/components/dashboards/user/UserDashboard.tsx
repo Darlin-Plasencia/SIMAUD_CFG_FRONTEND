@@ -19,7 +19,8 @@ import {
   Mail,
   Phone,
   AlertTriangle,
-  PenTool
+  PenTool,
+  DollarSign
 } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -51,6 +52,11 @@ export const UserDashboard: React.FC = () => {
   const [successMessage, setSuccessMessage] = useState('');
   const [showSignatureModal, setShowSignatureModal] = useState(false);
   const [currentSignatory, setCurrentSignatory] = useState<any>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [contractStatusFilter, setContractStatusFilter] = useState<string>('all');
+  const [signatureStatusFilter, setSignatureStatusFilter] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'date' | 'title' | 'status'>('date');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
     if (user) {
@@ -152,7 +158,7 @@ export const UserDashboard: React.FC = () => {
           template:contract_templates(title)
         `)
         .in('id', contractIds)
-        .in('approval_status', ['approved', 'signed', 'cancelled']) // Incluir cancelados para mostrar a firmantes
+        .in('approval_status', ['approved', 'signed', 'completed', 'cancelled']) // Incluir todos los estados relevantes
         .eq('archived', false); // No mostrar archivados
 
       if (contractsError) {
@@ -218,8 +224,8 @@ export const UserDashboard: React.FC = () => {
         .from('contract_signatories')
         .select('*')
         .eq('contract_id', contract.id)
-        .or(`user_id.eq.${user.id},email.eq.${user.email}`)
-        .maybeSingle();
+        .eq('user_id', user.id)
+        .limit(1);
 
       if (signatoryError) {
         console.error('❌ Error finding signatory:', signatoryError);
@@ -227,18 +233,19 @@ export const UserDashboard: React.FC = () => {
         return;
       }
 
-      if (!signatory) {
+      const signatoryRecord = signatory?.[0];
+      if (!signatoryRecord) {
         setError('No se encontró el registro de firmante para este contrato');
         return;
       }
 
-      if (signatory.signed_at) {
+      if (signatoryRecord.signed_at) {
         setError('Este contrato ya ha sido firmado');
         return;
       }
 
-      console.log('📝 Found signatory record:', signatory);
-      setCurrentSignatory({ ...signatory, contract_title: contract.title });
+      console.log('📝 Found signatory record:', signatoryRecord);
+      setCurrentSignatory({ ...signatoryRecord, contract_title: contract.title });
       setShowSignatureModal(true);
       
     } catch (error: any) {
@@ -333,13 +340,40 @@ export const UserDashboard: React.FC = () => {
   const renderMainContent = () => {
     switch (currentView) {
       case 'contracts':
-        return <ContractsView contracts={contracts} loading={loading} error={error} onViewContract={handleViewContract} onSignContract={handleSignContract} signingContract={signingContract} onRetry={loadSignatoryContracts} />;
+        return <ContractsView 
+          contracts={contracts} 
+          loading={loading} 
+          error={error} 
+          onViewContract={handleViewContract} 
+          onSignContract={handleSignContract} 
+          signingContract={signingContract} 
+          onRetry={loadSignatoryContracts}
+          searchTerm={searchTerm}
+          contractStatusFilter={contractStatusFilter}
+          signatureStatusFilter={signatureStatusFilter}
+          sortBy={sortBy}
+          sortOrder={sortOrder}
+        />;
       case 'profile':
         return <UserProfile />;
       case 'dashboard':
-        return <DashboardHome stats={stats} contracts={contracts} onViewContract={handleViewContract} onSignContract={handleSignContract} signingContract={signingContract} />;
+        return <DashboardHome 
+          stats={stats} 
+          contracts={contracts} 
+          onViewContract={handleViewContract} 
+          onSignContract={handleSignContract} 
+          signingContract={signingContract} 
+          searchTerm={searchTerm}
+        />;
       default:
-        return <DashboardHome stats={stats} contracts={contracts} onViewContract={handleViewContract} onSignContract={handleSignContract} signingContract={signingContract} />;
+        return <DashboardHome 
+          stats={stats} 
+          contracts={contracts} 
+          onViewContract={handleViewContract} 
+          onSignContract={handleSignContract} 
+          signingContract={signingContract} 
+          searchTerm={searchTerm}
+        />;
     }
   };
 
@@ -451,14 +485,17 @@ export const UserDashboard: React.FC = () => {
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <input
                   type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
                   placeholder="Buscar contratos..."
                   className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm"
                 />
               </div>
-              <button className="relative p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
-                <Bell className="w-5 h-5" />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-              </button>
+              <NotificationCenter onNavigate={(url) => {
+                if (url.includes('/contracts/')) {
+                  setCurrentView('contracts');
+                }
+              }} />
             </div>
           </div>
         </header>
@@ -512,6 +549,24 @@ export const UserDashboard: React.FC = () => {
 
             {renderMainContent()}
           </div>
+        
+          {/* Filters for contracts view only */}
+          {currentView === 'contracts' && (
+            <div className="p-6 pt-0">
+              <ContractsFilters 
+                searchTerm={searchTerm}
+                setSearchTerm={setSearchTerm}
+                contractStatusFilter={contractStatusFilter}
+                setContractStatusFilter={setContractStatusFilter}
+                signatureStatusFilter={signatureStatusFilter}
+                setSignatureStatusFilter={setSignatureStatusFilter}
+                sortBy={sortBy}
+                setSortBy={setSortBy}
+                sortOrder={sortOrder}
+                setSortOrder={setSortOrder}
+              />
+            </div>
+          )}
         </main>
       </div>
 
@@ -552,6 +607,93 @@ export const UserDashboard: React.FC = () => {
   );
 };
 
+// Contracts Filters Component
+const ContractsFilters: React.FC<{
+  searchTerm: string;
+  setSearchTerm: (term: string) => void;
+  contractStatusFilter: string;
+  setContractStatusFilter: (status: string) => void;
+  signatureStatusFilter: string;
+  setSignatureStatusFilter: (status: string) => void;
+  sortBy: 'date' | 'title' | 'status';
+  setSortBy: (sort: 'date' | 'title' | 'status') => void;
+  sortOrder: 'asc' | 'desc';
+  setSortOrder: (order: 'asc' | 'desc') => void;
+}> = ({
+  searchTerm,
+  setSearchTerm,
+  contractStatusFilter,
+  setContractStatusFilter,
+  signatureStatusFilter,
+  setSignatureStatusFilter,
+  sortBy,
+  setSortBy,
+  sortOrder,
+  setSortOrder
+}) => {
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Search */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+          <input
+            type="text"
+            placeholder="Buscar contratos..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm"
+          />
+        </div>
+
+        {/* Contract Status Filter */}
+        <select
+          value={contractStatusFilter}
+          onChange={(e) => setContractStatusFilter(e.target.value)}
+          className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm"
+        >
+          <option value="all">Todos los estados</option>
+          <option value="approved">Aprobados</option>
+          <option value="signed">Firmados</option>
+          <option value="completed">Completados</option>
+          <option value="cancelled">Cancelados</option>
+        </select>
+
+        {/* Signature Status Filter */}
+        <select
+          value={signatureStatusFilter}
+          onChange={(e) => setSignatureStatusFilter(e.target.value)}
+          className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm"
+        >
+          <option value="all">Todas las firmas</option>
+          <option value="pending">Pendiente de firmar</option>
+          <option value="signed">Ya firmados</option>
+        </select>
+
+        {/* Sort Options */}
+        <div className="flex space-x-2">
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as any)}
+            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm"
+          >
+            <option value="date">Por fecha</option>
+            <option value="title">Por título</option>
+            <option value="status">Por estado</option>
+          </select>
+          <button
+            onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+            className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors duration-200"
+            title={`Ordenar ${sortOrder === 'asc' ? 'descendente' : 'ascendente'}`}
+          >
+            {sortOrder === 'asc' ? '↑' : '↓'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // Dashboard Home Component
 const DashboardHome: React.FC<{ 
   stats: any[]; 
@@ -559,9 +701,22 @@ const DashboardHome: React.FC<{
   onViewContract: (contract: Contract) => void;
   onSignContract: (contract: Contract) => void;
   signingContract: string | null;
-}> = ({ stats, contracts, onViewContract, onSignContract, signingContract }) => {
+  searchTerm: string;
+}> = ({ stats, contracts, onViewContract, onSignContract, signingContract, searchTerm }) => {
   const { user } = useAuth();
-  const pendingContracts = contracts.filter(c => c.signatory_status === 'pending').slice(0, 3);
+  
+  // Filter contracts based on search term
+  const filteredContracts = contracts.filter(contract => {
+    if (!searchTerm) return true;
+    const searchLower = searchTerm.toLowerCase();
+    return contract.title.toLowerCase().includes(searchLower) ||
+           contract.client_name?.toLowerCase().includes(searchLower);
+  });
+  
+  const pendingContracts = filteredContracts.filter(c => 
+    c.signatory_status === 'pending' && 
+    c.approval_status !== 'cancelled'
+  ).slice(0, 3);
 
   return (
     <div className="space-y-6">
@@ -629,45 +784,14 @@ const DashboardHome: React.FC<{
         ) : (
           <div className="space-y-3">
             {pendingContracts.map((contract, index) => (
-              <motion.div
+              <ContractCard 
                 key={contract.id}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: index * 0.1 }}
-                className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors duration-200"
-              >
-                <div className="flex-1">
-                  <h4 className="text-sm font-medium text-gray-900">{contract.title}</h4>
-                  <p className="text-xs text-gray-500">Cliente: {contract.client_name}</p>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-orange-600 bg-orange-100">
-                    <Clock className="w-3 h-3 mr-1" />
-                    Pendiente
-                  </span>
-                  <div className="flex items-center space-x-1">
-                    <button
-                      onClick={() => onViewContract(contract)}
-                      className="p-1 text-gray-500 hover:text-blue-600 rounded"
-                      title="Ver contrato"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => onSignContract(contract)}
-                      disabled={signingContract === contract.id}
-                      className="p-1 text-gray-500 hover:text-green-600 rounded disabled:opacity-50"
-                      title="Firmar contrato"
-                    >
-                      {signingContract === contract.id ? (
-                        <LoadingSpinner size="small" />
-                      ) : (
-                        <PenTool className="w-4 h-4" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
+                contract={contract}
+                onViewContract={onViewContract}
+                onSignContract={onSignContract}
+                signingContract={signingContract}
+                index={index}
+              />
             ))}
           </div>
         )}
@@ -685,7 +809,25 @@ const ContractsView: React.FC<{
   onSignContract: (contract: Contract) => void;
   signingContract: string | null;
   onRetry: () => void;
-}> = ({ contracts, loading, error, onViewContract, onSignContract, signingContract, onRetry }) => {
+  searchTerm: string;
+  contractStatusFilter: string;
+  signatureStatusFilter: string;
+  sortBy: 'date' | 'title' | 'status';
+  sortOrder: 'asc' | 'desc';
+}> = ({ 
+  contracts, 
+  loading, 
+  error, 
+  onViewContract, 
+  onSignContract, 
+  signingContract, 
+  onRetry,
+  searchTerm,
+  contractStatusFilter,
+  signatureStatusFilter,
+  sortBy,
+  sortOrder
+}) => {
   const formatDate = (dateString: string | null) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString('es-ES', {
@@ -694,6 +836,42 @@ const ContractsView: React.FC<{
       day: 'numeric'
     });
   };
+
+  // Filter and sort contracts
+  const filteredAndSortedContracts = contracts
+    .filter(contract => {
+      // Search filter
+      const matchesSearch = !searchTerm || 
+        contract.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        contract.client_name?.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      // Contract status filter
+      const matchesContractStatus = contractStatusFilter === 'all' || 
+        contract.approval_status === contractStatusFilter;
+      
+      // Signature status filter
+      const matchesSignatureStatus = signatureStatusFilter === 'all' || 
+        contract.signatory_status === signatureStatusFilter;
+      
+      return matchesSearch && matchesContractStatus && matchesSignatureStatus;
+    })
+    .sort((a, b) => {
+      let comparison = 0;
+      
+      switch (sortBy) {
+        case 'title':
+          comparison = a.title.localeCompare(b.title);
+          break;
+        case 'status':
+          comparison = a.approval_status.localeCompare(b.approval_status);
+          break;
+        case 'date':
+        default:
+          comparison = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      }
+      
+      return sortOrder === 'asc' ? comparison : -comparison;
+    });
 
   if (loading) {
     return (
@@ -719,7 +897,7 @@ const ContractsView: React.FC<{
     );
   }
 
-  if (contracts.length === 0) {
+  if (filteredAndSortedContracts.length === 0) {
     return (
       <div className="text-center py-12">
         <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
@@ -730,197 +908,214 @@ const ContractsView: React.FC<{
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      {contracts.map((contract) => (
-        <motion.div
+    <div className="space-y-4">
+      {filteredAndSortedContracts.map((contract, index) => (
+        <ContractCard 
           key={contract.id}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className={`bg-white rounded-xl border p-6 hover:shadow-md transition-shadow duration-200 ${
-            contract.archived 
-              ? 'border-gray-300 opacity-75' 
-              : contract.approval_status === 'cancelled' 
-              ? 'border-red-200 bg-red-50'
-              : 'border-gray-200'
-          }`}
-        >
-          {/* Cancellation Notice for Signatories */}
-          {contract.approval_status === 'cancelled' && (
-            <div className="mb-4 p-3 bg-red-100 border border-red-200 rounded-lg">
-              <div className="flex items-center space-x-2 mb-2">
-                <AlertTriangle className="w-4 h-4 text-red-600" />
-                <h4 className="font-bold text-red-900">CONTRATO CANCELADO</h4>
-              </div>
+          contract={contract}
+          onViewContract={onViewContract}
+          onSignContract={onSignContract}
+          signingContract={signingContract}
+          index={index}
+        />
+      ))}
+    </div>
+  );
+};
+
+// Improved Contract Card Component
+const ContractCard: React.FC<{
+  contract: SignatoryContract;
+  onViewContract: (contract: Contract) => void;
+  onSignContract: (contract: Contract) => void;
+  signingContract: string | null;
+  index: number;
+}> = ({ contract, onViewContract, onSignContract, signingContract, index }) => {
+  
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('es-ES', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  };
+
+  const formatCurrency = (value: number | null) => {
+    if (!value) return 'N/A';
+    return new Intl.NumberFormat('es-ES', {
+      style: 'currency',
+      currency: 'USD'
+    }).format(value);
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.1 }}
+      className="bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-all duration-200 overflow-hidden"
+    >
+      <div className="p-6">
+        {/* Cancellation notice - most prominent */}
+        {contract.approval_status === 'cancelled' && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex items-center space-x-2 mb-2">
+              <AlertTriangle className="w-4 h-4 text-red-600" />
+              <span className="font-bold text-red-900">CONTRATO CANCELADO</span>
+            </div>
+            {contract.rejection_reason && (
               <p className="text-sm text-red-800">
-                Este contrato ha sido cancelado y ya no requiere firma.
+                <strong>Razón:</strong> {contract.rejection_reason}
               </p>
-              {contract.rejection_reason && (
-                <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded">
-                  <p className="text-xs text-red-700">
-                    <strong>Razón:</strong> {contract.rejection_reason}
-                  </p>
-                </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 rounded-lg bg-orange-100">
+              {contract.signatory_status === 'signed' ? (
+                <CheckCircle className="w-5 h-5 text-orange-600" />
+              ) : (
+                <PenTool className="w-5 h-5 text-orange-600" />
               )}
             </div>
-          )}
-          
-          {/* Header */}
-          <div className="flex items-start justify-between mb-4">
-            <div className="flex items-center space-x-3">
-              <div className={`p-2 rounded-lg ${
-                contract.signatory_status === 'signed' ? 'bg-green-100' : 'bg-orange-100'
-              }`}>
-                {contract.signatory_status === 'signed' ? (
-                  <CheckCircle className="w-5 h-5 text-green-600" />
-                ) : (
-                  <Clock className="w-5 h-5 text-orange-600" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-gray-900 truncate" title={contract.title}>
-                  {contract.title}
-                </h3>
-                <p className="text-sm text-gray-500">
-                  Orden de firma: {contract.signing_order}
-                </p>
-              </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="font-semibold text-gray-900 truncate" title={contract.title}>
+                {contract.title}
+              </h3>
+              <p className="text-sm text-gray-500">
+                {contract.template?.title || 'Sin plantilla'}
+              </p>
             </div>
           </div>
-
-          {/* Status */}
-          <div className="mb-4">
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Contract approval status */}
-              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                contract.approval_status === 'cancelled' ? 'text-red-600 bg-red-100' :
-                contract.approval_status === 'signed' ? 'text-blue-600 bg-blue-100' :
-                'text-green-600 bg-green-100'
-              }`}>
-                {contract.approval_status === 'cancelled' ? 'CANCELADO' :
-                 contract.approval_status === 'signed' ? 'Firmado' :
-                 contract.approval_status.replace('_', ' ')}
+          <div className="flex flex-col items-end space-y-1">
+            {/* CANCELLATION TAG - Most Prominent */}
+            {contract.approval_status === 'cancelled' && (
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-bold text-red-700 bg-red-100 border border-red-300">
+                CANCELADO
               </span>
-              
-              {/* Signatory status (only for non-cancelled) */}
-              {contract.approval_status !== 'cancelled' && (
+            )}
+            
+            {/* EXPIRY TAGS */}
+            {contract.actual_status === 'expired' && contract.approval_status !== 'cancelled' && (
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold text-red-700 bg-red-100">
+                VENCIDO
+              </span>
+            )}
+            {contract.actual_status === 'expiring_soon' && contract.approval_status !== 'cancelled' && (
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold text-yellow-700 bg-yellow-100">
+                PRÓXIMO A VENCER
+              </span>
+            )}
+            
+            {/* Regular Status Tags - only if not cancelled */}
+            {contract.approval_status !== 'cancelled' && (
+              <>
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                  contract.approval_status === 'signed' ? 'text-blue-600 bg-blue-100' :
+                  contract.approval_status === 'approved' ? 'text-green-600 bg-green-100' :
+                  'text-gray-600 bg-gray-100'
+                }`}>
+                  {contract.approval_status.replace('_', ' ')}
+                </span>
+                
                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                   contract.signatory_status === 'signed' 
                     ? 'text-green-600 bg-green-100'
                     : 'text-orange-600 bg-orange-100'
                 }`}>
-                  {contract.signatory_status === 'signed' ? 'Mi Firma: ✓' : 'Pendiente de Firma'}
+                  {contract.signatory_status === 'signed' ? 'Ya Firmado' : 'Pendiente de Firma'}
                 </span>
-              )}
-              
-              {/* Additional status indicators */}
-              {contract.actual_status === 'expired' && (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold text-red-700 bg-red-100">
-                  VENCIDO
-                </span>
-              )}
-              {contract.actual_status === 'expiring_soon' && (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold text-yellow-700 bg-yellow-100">
-                  PRÓXIMO A VENCER
-                </span>
-              )}
-              {contract.approval_status === 'cancelled' && (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold text-red-700 bg-red-100">
-                  CANCELADO
-                </span>
-              )}
-            </div>
+              </>
+            )}
           </div>
+        </div>
 
-          {/* Contract Info */}
-          <div className="space-y-2 mb-4">
-            {/* Contract Status Alerts */}
-            {contract.approval_status === 'cancelled' && (
-              <div className={`flex items-center space-x-2 text-sm p-2 rounded-lg ${
-                'bg-red-50 border border-red-200'
-              }`}>
-                <AlertTriangle className="w-4 h-4" />
-                <span className="font-medium">
-                  CONTRATO CANCELADO
-                </span>
-              </div>
-            )}
-            
-            {['expired', 'expiring_soon'].includes(contract.actual_status) && (
-              <div className={`flex items-center space-x-2 text-sm p-2 rounded-lg ${
-                contract.actual_status === 'expired' ? 'bg-red-50 border border-red-200' :
-                'bg-yellow-50 border border-yellow-200'
-              }`}>
-                <AlertTriangle className="w-4 h-4" />
-                <span className="font-medium">
-                  {contract.actual_status === 'expired' ? 'Contrato Vencido' :
-                   'Próximo a Vencer'}
-                </span>
-              </div>
-            )}
-
-            {/* Cancellation reason display */}
-            {contract.approval_status === 'cancelled' && contract.rejection_reason && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-2">
-                <p className="text-xs text-red-700">
-                  <strong>Razón de cancelación:</strong> {contract.rejection_reason}
-                </p>
-              </div>
-            )}
-            
+        {/* Contract Info */}
+        <div className="space-y-3 mb-4">
+          {contract.client_name && (
             <div className="flex items-center space-x-2 text-sm text-gray-600">
               <Users className="w-4 h-4" />
               <span className="truncate">{contract.client_name}</span>
             </div>
-            {contract.client_email && (
-              <div className="flex items-center space-x-2 text-sm text-gray-600">
-                <Mail className="w-4 h-4" />
-                <span className="truncate">{contract.client_email}</span>
-              </div>
-            )}
+          )}
+          {contract.contract_value && (
+            <div className="flex items-center space-x-2 text-sm text-gray-600">
+              <DollarSign className="w-4 h-4" />
+              <span>{formatCurrency(contract.contract_value)}</span>
+            </div>
+          )}
+          <div className="flex items-center space-x-2 text-sm text-gray-600">
+            <Calendar className="w-4 h-4" />
+            <span>Creado: {formatDate(contract.created_at)}</span>
+          </div>
+          {contract.end_date && (
             <div className="flex items-center space-x-2 text-sm text-gray-600">
               <Calendar className="w-4 h-4" />
-              <span>Creado: {formatDate(contract.created_at)}</span>
+              <span>Vence: {formatDate(contract.end_date)}</span>
             </div>
-            {contract.signed_at && (
-              <div className="flex items-center space-x-2 text-sm text-green-600">
-                <CheckCircle className="w-4 h-4" />
-                <span>Firmado: {formatDate(contract.signed_at)}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Actions */}
-          <div className="flex space-x-2">
+          )}
+          {contract.signed_at && (
+            <div className="flex items-center space-x-2 text-sm text-green-600">
+              <CheckCircle className="w-4 h-4" />
+              <span>Firmado: {formatDate(contract.signed_at)}</span>
+            </div>
+          )}
+        </div>
+        {/* Action Buttons */}
+        <div className="flex space-x-2 mt-4 pt-4 border-t border-gray-200">
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => onViewContract(contract)}
+            className="flex-1 text-sm bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors duration-200 font-medium text-center"
+          >
+            Ver Detalles
+          </motion.button>
+          
+          {contract.approval_status !== 'cancelled' && contract.signatory_status === 'pending' && (
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
-              onClick={() => onViewContract(contract)}
-              className="flex-1 text-sm bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors duration-200 font-medium text-center flex items-center justify-center space-x-1"
+              onClick={() => onSignContract(contract)}
+              disabled={signingContract === contract.id}
+              className="flex-1 text-sm bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 disabled:bg-green-400 transition-colors duration-200 font-medium text-center"
             >
-              <Eye className="w-4 h-4" />
-              <span>Ver Contrato</span>
-            </motion.button>
-            {contract.signatory_status === 'pending' && contract.approval_status !== 'cancelled' && (
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => onSignContract(contract)}
-                disabled={signingContract === contract.id}
-                className="flex-1 text-sm bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 disabled:bg-green-400 transition-colors duration-200 font-medium text-center flex items-center justify-center space-x-1"
-              >
-                {signingContract === contract.id ? (
+              {signingContract === contract.id ? (
+                <div className="flex items-center justify-center space-x-2">
                   <LoadingSpinner size="small" />
-                ) : (
-                  <>
-                    <PenTool className="w-4 h-4" />
-                    <span>Firmar</span>
-                  </>
-                )}
-              </motion.button>
-            )}
-          </div>
-        </motion.div>
-      ))}
-    </div>
+                  <span>Firmando...</span>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center space-x-2">
+                  <PenTool className="w-4 h-4" />
+                  <span>Firmar</span>
+                </div>
+              )}
+            </motion.button>
+          )}
+          
+          {contract.signatory_status === 'signed' && contract.approval_status !== 'cancelled' && (
+            <div className="flex-1 text-sm bg-green-100 text-green-700 px-3 py-2 rounded-lg font-medium text-center">
+              <div className="flex items-center justify-center space-x-2">
+                <CheckCircle className="w-4 h-4" />
+                <span>Ya Firmado</span>
+              </div>
+            </div>
+          )}
+
+          {contract.approval_status === 'cancelled' && (
+            <div className="flex-1 text-sm bg-red-100 text-red-700 px-3 py-2 rounded-lg font-medium text-center">
+              <div className="flex items-center justify-center space-x-2">
+                <XCircle className="w-4 h-4" />
+                <span>Cancelado</span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </motion.div>
   );
 };

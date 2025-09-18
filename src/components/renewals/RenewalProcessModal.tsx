@@ -75,12 +75,7 @@ export const RenewalProcessModal: React.FC<RenewalProcessModalProps> = ({
         throw new Error(result.error || 'Error al procesar renovación');
       }
 
-      // Show success message and close modal
-      if (selectedAction === 'approve') {
-        console.log('✅ Renovación aprobada exitosamente');
-      } else {
-        console.log('✅ Renovación rechazada exitosamente');
-      }
+      console.log('✅ Renewal processed successfully:', result);
       
       // Close modal and refresh parent
       onSuccess();
@@ -287,7 +282,7 @@ export const RenewalProcessModal: React.FC<RenewalProcessModalProps> = ({
               ) : (
                 <div className="flex items-center justify-center space-x-2">
                   <CheckCircle className="w-4 h-4" />
-                  <span>Aprobar y Crear Contrato</span>
+                  <span>Aprobar Renovación</span>
                 </div>
               )}
             </button>
