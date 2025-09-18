@@ -26,15 +26,22 @@ export const DashboardController: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!user || !isAuthenticated) {
+    // Only load profile if we don't have one yet or if user ID changed
+    if (!user || !isAuthenticated || !user.id) {
+      setIsLoadingProfile(false);
+      return;
+    }
+    
+    // Skip loading if we already have a profile for this user
+    if (profile && profile.id === user.id) {
       setIsLoadingProfile(false);
       return;
     }
 
     const loadUserProfile = async () => {
       try {
-        setIsLoadingProfile(true);
         setError(null);
+        setIsLoadingProfile(true);
 
         const { data: profileData, error: profileError } = await supabase
           .from('user_profiles')
@@ -45,15 +52,14 @@ export const DashboardController: React.FC = () => {
         if (profileError) {
           console.error('Error loading profile:', profileError);
           setError('Error al cargar el perfil del usuario');
-          setIsLoadingProfile(false);
           return;
         }
 
         setProfile(profileData);
-        setIsLoadingProfile(false);
       } catch (err) {
         console.error('Error loading profile:', err);
         setError('Error al cargar el perfil del usuario');
+      } finally {
         setIsLoadingProfile(false);
       }
     };
@@ -82,7 +88,7 @@ export const DashboardController: React.FC = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, isAuthenticated]);
+  }, [user?.id, isAuthenticated]); // Only depend on user ID, not the whole user object
 
   // Si no está autenticado, redirigir al auth
   if (!isAuthenticated || !user) {

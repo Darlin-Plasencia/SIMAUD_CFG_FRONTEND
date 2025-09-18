@@ -167,9 +167,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   useEffect(() => {
+    let isMounted = true;
     let isInitializing = true;
 
     const initializeAuth = async () => {
+      if (!isMounted) return;
+      
       try {
         const { data: { session } } = await supabase.auth.getSession();
         
@@ -178,21 +181,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           const metadataRole = basicUser.role;
           
           getUserWithProfile(session.user).then(fullUser => {
+            if (!isMounted) return;
             if (fullUser.role !== metadataRole) {
               dispatch({ type: 'LOGIN_SUCCESS', payload: fullUser });
             } else {
               dispatch({ type: 'LOGIN_SUCCESS', payload: basicUser });
             }
           }).catch(() => {
+            if (!isMounted) return;
             dispatch({ type: 'LOGIN_SUCCESS', payload: basicUser });
           });
           
         } else {
+          if (!isMounted) return;
           dispatch({ type: 'LOGOUT' });
           setIsUpdatingRole(false);
         }
       } catch (error) {
         console.error('Error en inicialización:', error);
+        if (!isMounted) return;
         dispatch({ type: 'LOGOUT' });
         setIsUpdatingRole(false);
       }
@@ -200,29 +207,37 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       isInitializing = false;
     };
 
-    initializeAuth();
+    // Only initialize once on mount
+    if (state.isLoading) {
+      initializeAuth();
+    }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        if (isInitializing) return;
+        if (isInitializing || !isMounted) return;
         
         if (event === 'SIGNED_IN' && session?.user && session.user.email_confirmed_at) {
           getUserWithProfile(session.user).then(fullUser => {
+            if (!isMounted) return;
             dispatch({ type: 'LOGIN_SUCCESS', payload: fullUser });
           });
         } else if (event === 'SIGNED_OUT') {
+          if (!isMounted) return;
           dispatch({ type: 'LOGOUT' });
           setIsUpdatingRole(false);
         } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-          if (state.isAuthenticated) {
+          if (state.isAuthenticated && isMounted) {
             refreshUserProfile();
           }
         }
       }
     );
 
-    return () => subscription.unsubscribe();
-  }, []);
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, []); // Empty dependency array - only run once on mount
 
   const login = async (credentials: LoginCredentials): Promise<{ success: boolean; error?: string }> => {
     try {

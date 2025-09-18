@@ -53,10 +53,11 @@ export const SupervisorDashboard: React.FC = () => {
   ];
 
   useEffect(() => {
-    if (currentView === 'dashboard') {
+    // Only load dashboard data if we're on dashboard view and don't have data yet
+    if (currentView === 'dashboard' && (!dashboardData || error)) {
       loadDashboardData();
     }
-  }, [currentView, user]);
+  }, [currentView]); // Remove user dependency to prevent reload on tab switch
 
   const loadDashboardData = async () => {
     if (!user) return;

@@ -62,10 +62,11 @@ export const AdminDashboard: React.FC = () => {
   ];
 
   useEffect(() => {
-    if (currentView === 'dashboard') {
+    // Only load dashboard data if we're on dashboard view and don't have data yet
+    if (currentView === 'dashboard' && (!dashboardData || error)) {
       loadDashboardData();
     }
-  }, [currentView]);
+  }, [currentView]); // Keep only currentView dependency
 
   const loadDashboardData = async () => {
     if (!user) return;

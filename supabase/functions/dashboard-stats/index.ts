@@ -105,6 +105,10 @@ async function getAdminDashboardData(supabase: any, params: DashboardParams) {
   const pendingApprovals = approvals.filter((a: any) => a.status === 'pending');
   const weeklyContracts = contracts.filter((c: any) => c.created_at >= sevenDaysAgo);
 
+  // Calculate active contracts
+  const activeContracts = contracts.filter((c: any) => c.status === 'active').length;
+  const expiringSoonContracts = contracts.filter((c: any) => c.actual_status === 'expiring_soon').length;
+
   // Distribución por estado
   const statusDistribution = contracts.reduce((acc: any, contract: any) => {
     const status = contract.approval_status;
@@ -148,6 +152,8 @@ async function getAdminDashboardData(supabase: any, params: DashboardParams) {
       new_contracts_month: recentContracts.length,
       total_value: totalValue,
       pending_approvals: pendingApprovals.length,
+      active_contracts: activeContracts,
+      expiring_soon: expiringSoonContracts,
       active_templates: templates.filter((t: any) => t.status === 'active').length,
       contracts_this_week: weeklyContracts.length
     },
