@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js"
+    "test": "node --no-warnings --experimental-vm-modules ./node_modules/jest/bin/jest.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.56.0",

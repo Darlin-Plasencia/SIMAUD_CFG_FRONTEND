@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+﻿import { createClient } from '@supabase/supabase-js';
 
 const resolveEnvironment = (): Record<string, string | undefined> => {
   try {
@@ -16,6 +16,7 @@ const env = resolveEnvironment();
 
 const supabaseUrl = env.VITE_SUPABASE_URL;
 const supabaseKey = env.VITE_SUPABASE_ANON_KEY;
+const isTestEnvironment = env.NODE_ENV === 'test' || env.MODE === 'test' || env.JEST_WORKER_ID !== undefined;
 
 if (!supabaseUrl || !supabaseKey) {
   console.error('[Supabase] Missing Supabase environment variables:');
@@ -24,8 +25,10 @@ if (!supabaseUrl || !supabaseKey) {
   throw new Error('Missing Supabase environment variables. Please check your .env file.');
 }
 
-console.log('[Supabase] Client initialized');
-console.log('URL:', supabaseUrl);
+if (!isTestEnvironment) {
+  console.log('[Supabase] Client initialized');
+  console.log('URL:', supabaseUrl);
+}
 
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
