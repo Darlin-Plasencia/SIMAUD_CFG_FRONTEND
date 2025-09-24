@@ -1,16 +1,30 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const resolveEnvironment = (): Record<string, string | undefined> => {
+  try {
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      return import.meta.env as Record<string, string>;
+    }
+  } catch {
+    // Accessing import.meta can throw in some Node environments; fall back to process.env
+  }
+
+  return (typeof process !== 'undefined' ? process.env : {}) as Record<string, string | undefined>;
+};
+
+const env = resolveEnvironment();
+
+const supabaseUrl = env.VITE_SUPABASE_URL;
+const supabaseKey = env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
-  console.error('❌ Missing Supabase environment variables:');
-  console.error('VITE_SUPABASE_URL:', supabaseUrl ? '✓ Set' : '❌ Missing');
-  console.error('VITE_SUPABASE_ANON_KEY:', supabaseKey ? '✓ Set' : '❌ Missing');
+  console.error('[Supabase] Missing Supabase environment variables:');
+  console.error('VITE_SUPABASE_URL:', supabaseUrl ? 'Set' : 'Missing');
+  console.error('VITE_SUPABASE_ANON_KEY:', supabaseKey ? 'Set' : 'Missing');
   throw new Error('Missing Supabase environment variables. Please check your .env file.');
 }
 
-console.log('✅ Supabase client initialized');
+console.log('[Supabase] Client initialized');
 console.log('URL:', supabaseUrl);
 
 export const supabase = createClient(supabaseUrl, supabaseKey, {
@@ -22,7 +36,6 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
   }
 });
 
-// Types for our database
 export interface UserProfile {
   id: string;
   email: string;
