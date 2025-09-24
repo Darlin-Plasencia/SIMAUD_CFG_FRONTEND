@@ -32,6 +32,10 @@ interface ExtendedAuthState extends AuthState {
   pendingEmail: string | null;
 }
 
+type AuthRedirectOverride = { __AUTH_REDIRECT__?: (target: string) => void };
+
+type AuthChangeCallback = (event: string, session: { user?: any } | null) => void | Promise<void>
+
 const authReducer = (state: ExtendedAuthState, action: AuthAction): ExtendedAuthState => {
   switch (action.type) {
     case 'LOADING':
@@ -357,8 +361,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       dispatch({ type: 'LOGOUT' });
       setIsUpdatingRole(false);
       
-      // Force reload to ensure clean state
-      window.location.href = '/auth';
+      const redirect = (globalThis as AuthRedirectOverride).__AUTH_REDIRECT__;
+      if (redirect) {
+        redirect('/auth');
+      } else {
+        // Force reload to ensure clean state
+        window.location.href = '/auth';
+      }
     }
   };
 

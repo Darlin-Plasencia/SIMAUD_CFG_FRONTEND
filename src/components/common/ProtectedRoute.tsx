@@ -7,13 +7,24 @@ interface ProtectedRouteProps {
   requiredRole?: 'admin' | 'user';
 }
 
-export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ 
-  children, 
-  requiredRole 
+type ReloadOverride = { __FORCE_RELOAD__?: () => void };
+
+export const reloadPage = (): void => {
+  const override = (globalThis as ReloadOverride).__FORCE_RELOAD__;
+  if (override) {
+    override();
+    return;
+  }
+
+  window.location.reload();
+};
+
+export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
+  children,
+  requiredRole
 }) => {
   const { isAuthenticated, user, isLoading, isUpdatingRole } = useAuth();
 
-  // Mostrar loading si está cargando O si está verificando el rol
   if (isLoading || isUpdatingRole) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -23,7 +34,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   }
 
   if (!isAuthenticated || !user) {
-    return null; // This will be handled by the routing logic
+    return null;
   }
 
   if (requiredRole && user.role !== requiredRole) {
@@ -34,10 +45,10 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
             Acceso Denegado
           </h2>
           <p className="text-gray-600 mb-6">
-            No tienes permisos para acceder a esta sección.
+            No tienes permisos para acceder a esta secci\u00f3n.
           </p>
           <button
-            onClick={() => window.location.reload()}
+            onClick={reloadPage}
             className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors duration-200"
           >
             Volver

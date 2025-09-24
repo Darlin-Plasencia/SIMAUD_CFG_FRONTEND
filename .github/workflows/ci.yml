@@ -2,26 +2,58 @@ name: CI
 
 on:
   push:
-    branches: [Develop, main]
+    branches:
+      - Develop
+      - main
   pull_request:
-    branches: [Develop, main]
+    branches:
+      - Develop
+      - main
 
 jobs:
-  build:
+  test:
+    name: Node ${{ matrix.node }}
     runs-on: ubuntu-latest
-
+    strategy:
+      matrix:
+        node: [18, 20, 22]
+      fail-fast: false
+    concurrency:
+      group: ci-${{ github.ref }}-${{ github.workflow }}
+      cancel-in-progress: true
+    timeout-minutes: 20
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ matrix.node }}
           cache: 'npm'
 
-      - name: Install dependencies
+      - name: Install deps (clean)
         run: npm ci
 
-      - name: Run tests
-        run: npm test
+      - name: Type check
+        run: npm run typecheck --if-present
+
+      - name: Lint
+        run: npm run lint --if-present
+
+      - name: Run tests (CI)
+        run: npm run test:ci
+        env:
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_ANON_KEY: test-anon-key
+
+      - name: Build (sanity)
+        run: npm run build --if-present
+
+      - name: Coverage report
+        run: npm run test:cov --if-present
+
+      - name: Upload coverage artifact
+        if: success() && hashFiles('coverage/lcov.info') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.node }}
+          path: coverage
