@@ -1,4 +1,4 @@
-import '@testing-library/jest-dom/jest-globals'; // Habilita los matchers extra de Testing Library en Jest()
+import '@testing-library/jest-dom/jest-globals'; // Habilita los matchers extra de Testing Library en Jest
 import { ComponentProps } from 'react';
 import { describe, expect, it, jest } from '@jest/globals';
 import { render } from '@testing-library/react';
