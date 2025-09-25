@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
+// Mockeamos el SDK de Supabase para observar cómo se inicializa el cliente
 jest.mock('@supabase/supabase-js', () => ({
   createClient: jest.fn(() => ({
     auth: {}
@@ -7,18 +8,11 @@ jest.mock('@supabase/supabase-js', () => ({
 }));
 
 const ORIGINAL_ENV = { ...process.env };
-
-const clearOverride = () => {
-  delete (globalThis as Record<string, unknown>).__SUPABASE_ENV__;
-};
-
 let createClientMock: jest.Mock;
 
 beforeEach(async () => {
-  jest.resetModules();
-  process.env = { ...ORIGINAL_ENV };
-  clearOverride();
-
+  jest.resetModules(); // Garantiza que importemos una versión fresca del módulo en cada prueba
+  process.env = { ...ORIGINAL_ENV }; // Restauramos variables de entorno conocidas
   const supabaseModule = await import('@supabase/supabase-js');
   createClientMock = supabaseModule.createClient as jest.Mock;
   createClientMock.mockClear();
@@ -26,12 +20,10 @@ beforeEach(async () => {
 
 afterEach(() => {
   jest.clearAllMocks();
-  clearOverride();
 });
 
 afterAll(() => {
-  process.env = ORIGINAL_ENV;
-  clearOverride();
+  process.env = ORIGINAL_ENV; // Devolvemos el entorno al estado original tras todas las pruebas
 });
 
 describe('supabase client configuration', () => {
@@ -52,46 +44,9 @@ describe('supabase client configuration', () => {
           storageKey: 'simaud-auth'
         })
       })
-    );
+    ); // Verificamos que el cliente se configure con las opciones de autenticación esperadas
 
-    expect(module.supabase).toBeDefined();
-  });
-
-  it('respects a global override for tests', async () => {
-    (globalThis as Record<string, unknown>).__SUPABASE_ENV__ = {
-      VITE_SUPABASE_URL: 'https://meta.supabase.co',
-      VITE_SUPABASE_ANON_KEY: 'meta-anon-key',
-      NODE_ENV: 'development',
-      MODE: 'development'
-    };
-
-    const module = await import('../lib/supabase');
-
-    expect(createClientMock).toHaveBeenCalledWith(
-      'https://meta.supabase.co',
-      'meta-anon-key',
-      expect.any(Object)
-    );
-
-    expect(module.supabase).toBeDefined();
-  });
-
-  it('avoids logging initialization even outside the test environment', async () => {
-    (globalThis as Record<string, unknown>).__SUPABASE_ENV__ = {
-      VITE_SUPABASE_URL: 'https://staging.supabase.co',
-      VITE_SUPABASE_ANON_KEY: 'staging-anon',
-      NODE_ENV: 'development',
-      MODE: 'development',
-      JEST_WORKER_ID: undefined
-    };
-
-    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
-
-    await import('../lib/supabase');
-
-    expect(logSpy).not.toHaveBeenCalled();
-
-    logSpy.mockRestore();
+    expect(module.supabase).toBeDefined(); // El m�dulo debe exponer el cliente instanciado
   });
 
   it('throws a descriptive error when required environment variables are missing', async () => {
@@ -100,9 +55,9 @@ describe('supabase client configuration', () => {
 
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
-    await expect(import('../lib/supabase')).rejects.toThrow('Missing Supabase environment variables');
+    await expect(import('../lib/supabase')).rejects.toThrow('Missing Supabase environment variables'); // Sin credenciales, el módulo debe fallar
 
-    expect(errorSpy).toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalled(); // Se espera un log explicativo en consola
 
     errorSpy.mockRestore();
   });

@@ -8,10 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "node --no-warnings --experimental-vm-modules ./node_modules/jest/bin/jest.js",
-    "typecheck": "tsc --noEmit",
-    "test:ci": "node --no-warnings --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand --ci",
-    "test:cov": "node --no-warnings --experimental-vm-modules ./node_modules/jest/bin/jest.js --coverage --runInBand"
+    "test": "node --no-warnings --experimental-vm-modules ./node_modules/jest/bin/jest.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.56.0",

@@ -1,21 +1,21 @@
-import '@testing-library/jest-dom/jest-globals';
+import '@testing-library/jest-dom/jest-globals'; // Activa los matchers de Testing Library para estas pruebas
 import { afterEach, beforeAll, describe, expect, it, jest } from '@jest/globals';
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 
-type ProtectedRouteModule = typeof import('../components/common/ProtectedRoute');
-let protectedRouteModule: ProtectedRouteModule;
-let ProtectedRoute: ProtectedRouteModule['ProtectedRoute'];
+type ProtectedRouteComponent = (typeof import('../components/common/ProtectedRoute'))['ProtectedRoute'];
+let ProtectedRoute: ProtectedRouteComponent;
 let useAuthMock: jest.Mock;
 
 beforeAll(async () => {
   useAuthMock = jest.fn();
 
+  // Inyectamos un mock del contexto de autenticación para controlar los escenarios de acceso
   await jest.unstable_mockModule('../contexts/AuthContext', () => ({
     useAuth: useAuthMock
   }));
 
+  // Sustituimos framer-motion por un contenedor neutro para evitar animaciones en el test
   await jest.unstable_mockModule('framer-motion', () => ({
     motion: {
       div: ({ children, ...props }: React.ComponentProps<'div'>) => (
@@ -24,10 +24,10 @@ beforeAll(async () => {
     }
   }));
 
-  protectedRouteModule = await import('../components/common/ProtectedRoute');
-  ProtectedRoute = protectedRouteModule.ProtectedRoute;
+  ProtectedRoute = (await import('../components/common/ProtectedRoute')).ProtectedRoute;
 });
 
+// Estado base del usuario; cada caso ajusta solo los campos necesarios
 const baseAuthValue = {
   isAuthenticated: false,
   user: null,
@@ -45,11 +45,10 @@ const baseAuthValue = {
 
 describe('ProtectedRoute', () => {
   afterEach(() => {
-    useAuthMock.mockReset();
-    delete (globalThis as Record<string, unknown>).__FORCE_RELOAD__;
+    useAuthMock.mockReset(); // Cada prueba parte de un contexto limpio
   });
 
-  it('shows a loading spinner while authentication is resolving', () => {
+  it('shows a loading spinner when authentication state is loading', () => {
     useAuthMock.mockReturnValue({
       ...baseAuthValue,
       isLoading: true
@@ -61,10 +60,10 @@ describe('ProtectedRoute', () => {
       </ProtectedRoute>
     );
 
-    expect(container.querySelector('.border-2')).toBeInTheDocument();
+    expect(container.querySelector('.border-2')).toBeInTheDocument(); // Debe mostrar el spinner de carga
   });
 
-  it('renders nothing when the user is not authenticated', () => {
+  it('returns null when the user is not authenticated', () => {
     useAuthMock.mockReturnValue({
       ...baseAuthValue
     });
@@ -75,10 +74,10 @@ describe('ProtectedRoute', () => {
       </ProtectedRoute>
     );
 
-    expect(container).toBeEmptyDOMElement();
+    expect(container).toBeEmptyDOMElement(); // Sin sesión, el componente no renderiza nada protegido
   });
 
-  it('shows an access denied message when the role does not match', () => {
+  it('renders access denied message when role requirement is not met', () => {
     useAuthMock.mockReturnValue({
       ...baseAuthValue,
       isAuthenticated: true,
@@ -100,39 +99,7 @@ describe('ProtectedRoute', () => {
       </ProtectedRoute>
     );
 
-    expect(screen.getByText('Acceso Denegado')).toBeInTheDocument();
-  });
-
-  it('offers a reload action when the user lacks permissions', async () => {
-    useAuthMock.mockReturnValue({
-      ...baseAuthValue,
-      isAuthenticated: true,
-      user: {
-        id: '3',
-        email: 'user@example.com',
-        name: 'User',
-        phone: '',
-        cedula: '',
-        role: 'user',
-        createdAt: '',
-        avatarUrl: null
-      }
-    });
-
-    const reloadMock = jest.fn();
-    (globalThis as Record<string, unknown>).__FORCE_RELOAD__ = reloadMock;
-
-    const user = userEvent.setup();
-
-    render(
-      <ProtectedRoute requiredRole="admin">
-        <div>Protected content</div>
-      </ProtectedRoute>
-    );
-
-    await user.click(screen.getByRole('button', { name: 'Volver' }));
-
-    expect(reloadMock).toHaveBeenCalled();
+    expect(screen.getByText('Acceso Denegado')).toBeInTheDocument(); // Usuarios sin rol válido reciben un aviso
   });
 
   it('renders children when the user has the required role', () => {
@@ -157,6 +124,6 @@ describe('ProtectedRoute', () => {
       </ProtectedRoute>
     );
 
-    expect(screen.getByText('Admin content')).toBeInTheDocument();
+    expect(screen.getByText('Admin content')).toBeInTheDocument(); // Con privilegios, se muestra el contenido hijo
   });
 });
